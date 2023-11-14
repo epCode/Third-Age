@@ -592,15 +592,16 @@ end
 
 function MobClass:get_swim_depth(pos)
 	local pos = pos or self.pos
+	pos = vector.add(pos, vector.new(0,-0.6,0)) -- make the caracter float just on the edge of the water to not swim under
 	local depth = 0
 	local floor_depth = 0
-	for i=0, 16 do
+	for i=1, 16 do
 		if not self:is_swimming(vector.add(pos, vector.new(0,i,0))) then
 			break
 		end
 		depth = i
 	end
-	for i=0, 16 do
+	for i=1, 16 do
 		if not self:is_swimming(vector.add(pos, vector.new(0,-i,0))) then
 			break
 		end
@@ -613,7 +614,6 @@ local function do_physics(self)
 	if self.swimming then
 		local prefered_depth = self.swim_depth
 		local final_depth, low_depth = self:get_swim_depth()
-
 		if self.target_pos then
 			local target_depth =  self:get_swim_depth(self.target_pos)
 			if target_depth > final_depth then
@@ -624,7 +624,17 @@ local function do_physics(self)
 		if low_depth < 3 then
 			prefered_depth = low_depth-2
 		end
-		self.object:set_acceleration({x=0,y=(final_depth-prefered_depth)*3,z=0}) -- make sure we are on the right swim depth
+
+		local land = self:is_swimming(
+			vector.add(self.pos, minetest.yaw_to_dir(self.object:get_yaw()))
+		)
+
+		if not land then
+			prefered_depth = -1
+		end
+		print(final_depth-prefered_depth)
+
+		self.object:set_acceleration({x=0,y=(final_depth-prefered_depth)*1.3,z=0}) -- make sure we are on the right swim depth
 		self.object:set_velocity(vector.new(self.vel.x, self.vel.y/1.1, self.vel.z))
 	else
 		self.object:set_acceleration({x=0,y=-self.gravity,z=0})
