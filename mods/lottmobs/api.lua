@@ -448,17 +448,12 @@ end
 local function movement(self,dtime,moveresult)
   local vel = self.object:get_velocity()
 
-  self.mood = "disturbed"
+  self.mood = "leisure"
 
   self.object:set_velocity(vector.new(vel.x*0.85, vel.y, vel.z*0.85))
   if self.state == "wander" then
     -- WANDER code
   end
-
-
-
-
-
 
 
 
@@ -595,17 +590,18 @@ local function line_of_sight(pos1, pos2)
 	return true
 end
 
-function MobClass:get_swim_depth()
+function MobClass:get_swim_depth(pos)
+	local pos = pos or self.pos
 	local depth = 0
 	local floor_depth = 0
 	for i=0, 16 do
-		if not self:is_swimming(vector.add(self.pos, vector.new(0,i,0))) then
+		if not self:is_swimming(vector.add(pos, vector.new(0,i,0))) then
 			break
 		end
 		depth = i
 	end
 	for i=0, 16 do
-		if not self:is_swimming(vector.add(self.pos, vector.new(0,-i,0))) then
+		if not self:is_swimming(vector.add(pos, vector.new(0,-i,0))) then
 			break
 		end
 		floor_depth = i
@@ -615,12 +611,20 @@ end
 
 local function do_physics(self)
 	if self.swimming then
+		local prefered_depth = self.swim_depth
 		local final_depth, low_depth = self:get_swim_depth()
-		local final_swim_depth = self.swim_depth
-		if low_depth < 3 then
-			final_swim_depth = low_depth-2
+
+		if self.target_pos then
+			local target_depth =  self:get_swim_depth(self.target_pos)
+			if target_depth > final_depth then
+				prefered_depth = target_depth
+			end
 		end
-		self.object:set_acceleration({x=0,y=(final_depth-final_swim_depth)*3,z=0})
+
+		if low_depth < 3 then
+			prefered_depth = low_depth-2
+		end
+		self.object:set_acceleration({x=0,y=(final_depth-prefered_depth)*3,z=0}) -- make sure we are on the right swim depth
 		self.object:set_velocity(vector.new(self.vel.x, self.vel.y/1.1, self.vel.z))
 	else
 		self.object:set_acceleration({x=0,y=-self.gravity,z=0})
@@ -653,20 +657,7 @@ local function mob_step(self, dtime, moveresult) -- defines on_step for mobs
 
   local pos = self.pos
 
-  if self.target then
-		local target_pos = vector.add(self.target:get_pos(), vector.new(0,1.4,0))
-		if self.target:is_player() then
-			target_pos = vector.add(self.target:get_pos(), vector.new(0,self.target:get_properties().eye_height,0))
-		end
 
-    if line_of_sight(vector.add(pos, vector.new(0,0.1,0)), target_pos) or
-    line_of_sight(vector.add(pos, vector.new(0,0.4,0)), target_pos) or
-    line_of_sight(vector.add(pos, vector.new(0,0.8,0)), target_pos) or
-    line_of_sight(vector.add(pos, vector.new(0,1.3,0)), target_pos)
-    then
-      self.target_pos = target_pos
-    end
-  end
   -- runs ever 6 ticks
   if self.mobtimer % 6 == 1 then
 
@@ -677,8 +668,22 @@ local function mob_step(self, dtime, moveresult) -- defines on_step for mobs
 			self.swimming = false
 		end
 
+		if self.target then
+			local target_pos = vector.add(self.target:get_pos(), vector.new(0,1.4,0))
+			if self.target:is_player() then
+				target_pos = vector.add(self.target:get_pos(), vector.new(0,self.target:get_properties().eye_height,0))
+			end
 
-    for _,obj in pairs(minetest.get_objects_inside_radius(self.pos, 10)) do
+	    if line_of_sight(vector.add(pos, vector.new(0,0.1,0)), target_pos) or
+	    line_of_sight(vector.add(pos, vector.new(0,0.4,0)), target_pos) or
+	    line_of_sight(vector.add(pos, vector.new(0,0.8,0)), target_pos) or
+	    line_of_sight(vector.add(pos, vector.new(0,1.3,0)), target_pos)
+	    then
+	      self.target_pos = target_pos
+	    end
+	  end
+
+    for _,obj in pairs(minetest.get_objects_inside_radius(self.pos, 40)) do
       if obj:is_player() then
         self.target = obj
       end
