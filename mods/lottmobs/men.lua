@@ -16,4 +16,5 @@ lottmobs.register_mob("lottmobs:man", {
     swim = vector.new(680,750,24), -- x and y are start and end points, z is anim speed
   },
   head_bone_pos = vector.new(0,8,0),
+  personal_space = 3,
 })

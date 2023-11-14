@@ -117,26 +117,30 @@ local physical_words = { -- used for easy reading
 -----------------------------------------
 
 local color_tags = {
-	extremely = minetest.colorize("#054000", "Extremely"),
-	very = minetest.colorize("#0dbe00", "Extremely"),
-	quite = minetest.colorize("#54be00", "Extremely"),
-	rarely = minetest.colorize("#ff0000", "Extremely"),
-	sometimes = minetest.colorize("#eaff00", "Extremely"),
-	somewhat = minetest.colorize("#eaff00", "Extremely"),
+	extremely = minetest.colorize("#072e00", "Extremely"),
+	very = minetest.colorize("#24f000", "Very"),
+	saddly = minetest.colorize("#ff0000", "Saddly"),
+	quite = minetest.colorize("#ff5e00", "Quite"),
+	rarely = minetest.colorize("#ff8e00", "Rarely"),
+	sometimes = minetest.colorize("#f0ff00", "Sometimes"),
+	somewhat = minetest.colorize("#baff00", "Somewhat"),
+	too = minetest.colorize("#ff0073", "Too"),
+	fairly = minetest.colorize("#ff4a00", "Fairly"),
+	pretty = minetest.colorize("#9df000", "Pretty"),
 }
 
 
 local scale_chart = { -- easy reading
-  color_tags.extremely.." @non",
-  color_tags.very.." @non",
-  color_tags.quite.." @non",
-  "@non",
-  color_tags.rarely.." @normal",
-  color_tags.sometimes.." @normal",
-  color_tags.somewhat.." @normal",
-  "@normal",
-  color_tags.very.." @normal",
-  color_tags.extremely.." @normal",
+  color_tags.too.."\n-  @non\n---------------------------------------",
+  color_tags.saddly.."\n-  @non\n---------------------------------------",
+  color_tags.quite.."\n-  @non\n---------------------------------------",
+  color_tags.fairly.."\n-  @non\n---------------------------------------",
+  color_tags.rarely.."\n-  @normal\n---------------------------------------",
+  color_tags.sometimes.."\n-  @normal\n---------------------------------------",
+  color_tags.somewhat.."\n-  @normal\n---------------------------------------",
+  color_tags.pretty.."\n-  @normal\n---------------------------------------",
+  color_tags.very.."\n-  @normal\n---------------------------------------",
+  color_tags.extremely.."\n-  @normal\n---------------------------------------",
 }
 
 
@@ -156,27 +160,30 @@ function MobClass:show_character_form(clicker, formextra)
 
 
 	local slist = ""
-	local traits_readable = {}
+	local personality_traits_readable = {}
+	local physical_traits_readable = {}
 	for trait,value in pairs(personality_traits) do
-		table.insert(traits_readable,self.character:get_trait(trait))
+		table.insert(personality_traits_readable,self.character:get_readable_trait(trait))
 	end
 	for trait,value in pairs(physical_traits) do
-		table.insert(traits_readable,self.character:get_trait(trait))
+		table.insert(physical_traits_readable,self.character:get_readable_trait(trait))
 	end
 
-	slist = "textlist[0.5,1.5;7,7;castables;"..table.concat(traits_readable,",")..";nil;true]"
+	slist_personality = "hypertext[0.5,1.5;3,9;castables;<style><style color=#ffffff font=bold size=13>"..table.concat(personality_traits_readable,"\n").."</style>]"
+	slist_physical = "hypertext[4.5,1.5;3,9;castables;<style><style color=#ffffff font=bold size=13>"..table.concat(physical_traits_readable,"\n").."</style>]"
 
 	local formspec =
     "formspec_version[4]"..
     "size[8,13]"..
 
-    "background[-0.5,-0;9,13;ward_bg.png]"..
-		slist..
-    "image[0.2,11.6;4.2,1.2;ward_black.png]"..
-    "image_button[0.3,11.7;4,1;ward_button.png;add_castables;Write Knowledge]"..
+    "background[-0.5,-0;9,13;bg_paper.png]"..
+		"image[0.4,1.4;3.2,9.2;lottmobs_ui_dark.png^[opacity:50]]"..
+		slist_personality..
+		"image[4.4,1.4;3.2,9.2;lottmobs_ui_dark.png^[opacity:50]"..
+		slist_physical..
 
-    "image[4.7,11.6;3.2,1.2;ward_black.png]"..
-    "image_button_exit[4.8,11.7;3,1;ward_button.png;close;Close]"..(formextra or "")
+    "image[4.7,11.6;3.2,1.2;lottmobs_ui_dark.png]"..
+    "image_button_exit[4.8,11.7;3,1;paper_button.png;close;Close]"..(formextra or "")
 	minetest.show_formspec(clicker:get_player_name(), "lottmobs:character_form", formspec)
 end
 
@@ -244,15 +251,27 @@ local function initialize_character_object() -- create base character
   return character
 end
 
+local function get_random_trait_num()
+	local num = 0
+	for i=1, 5 do
+		if i == 1 then
+			num = num + math.random(1,2)
+		else
+			num = num + math.random(0,2)
+		end
+	end
+	return num
+end
+
 function lottmobs.create_character()
   local character = initialize_character_object()
 
 
   for trait,value in pairs(personality_traits) do
-    character.personality_traits[trait] = math.random(0,2)+math.random(0,2)+math.random(0,2)+math.random(0,2)+math.random(0,2)
+    character.personality_traits[trait] = get_random_trait_num()
   end
   for trait,value in pairs(physical_traits) do
-    character.physical_traits[trait] = math.random(0,2)+math.random(0,2)+math.random(0,2)+math.random(0,2)+math.random(0,2)
+    character.physical_traits[trait] = get_random_trait_num()
   end
   return character
 end
@@ -380,16 +399,16 @@ function MobClass:set_yaw(yaw, dtime)-- adds velocity based on the orientation o
   local rot2 = shortest_term_of_yaw_rotation(self, selfyaw, yaw, true)
 
   if math.abs(rot2) > 10 then
-    self.object:set_yaw(selfyaw+
-      (rot*(self.character.physical_traits.speed/20+0.5)/5)
-    )
+    --self.object:set_yaw(selfyaw+
+    --  (rot*(self.character.physical_traits.speed/20+0.5)/5)
+    --)
   end
 end
 
 local function movement(self,dtime,moveresult)
   local vel = self.object:get_velocity()
 
-  self.mood = self.mood or "leisure"
+  self.mood = "disturbed"
 
   self.object:set_velocity(vector.new(vel.x*0.85, vel.y, vel.z*0.85))
   if self.state == "wander" then
@@ -408,23 +427,71 @@ local function movement(self,dtime,moveresult)
   if self.target_pos then -- go towards a target_pos if we deem it safe
     self:go_to(self.target_pos, dtime)
     if self.mood == "leisure" then
-      self:set_velocity(0.6)
+      --self:set_velocity(0.4)
     elseif self.mood == "determined" then
-      self:set_velocity(0.8)
+      --self:set_velocity(0.5)
     elseif self.mood == "disturbed" then
-      self:set_velocity(1)
+      --self:set_velocity(0.7)
     end
   end
 
 end
 
+function MobClass:get_xz_vel()
+	local vel = self.object:get_velocity()
+	return math.abs(vel.x)+math.abs(vel.z)
+end
+
 function MobClass:go_to(pos, dtime) -- a hybrid way of going to a point without proper pathfinding
 	local point_dir = vector.direction(self:get_eye_pos(),pos)
 	wander_dir = get_wander_dir(self:get_eye_pos(), point_dir, 6, self) -- this is seeing if there are any obstructive obsticals
+	local pushdir = self:_personal_space()
+
+	if not vector.equals(pushdir, vector.zero()) then
+		wander_dir = vector.normalize(vector.add(pushdir,wander_dir))
+	end
 	self:set_yaw(dir_to_yaw(wander_dir), dtime)
 end
 
-function MobClass:set_animation(name)
+function MobClass:set_anim_speed(mult)
+	self.object:set_animation_frame_speed(self:get_xz_vel()*6*mult)
+end
+
+local function do_animations(self)
+	local animspeed
+	if self.mood == "leisure" or
+	self.mood == "determined" or
+	self.mood == "disturbed"
+	then
+		if self.mood == "disturbed" and self:get_xz_vel() > 0.3 then
+			self:set_animation("run")
+			animspeed = 1.5
+		elseif self.mood ~= "disturbed" and self:get_xz_vel() > 0.3 then
+			self:set_animation("walk")
+			animspeed = 1
+		else
+			self:set_animation("idle")
+		end
+	end
+	if animspeed then
+		self:set_anim_speed(1)
+	end
+end
+
+function MobClass:_personal_space() -- returns the direction in which easiest to escape crowding
+	local push_vector = vector.zero()
+	local objs = minetest.get_objects_inside_radius(self.object:get_pos(), self.personal_space)
+	for _,obj in ipairs(objs) do
+		local luaentity = obj:get_luaentity()
+		if luaentity and luaentity ~= self and luaentity._cmi_is_mob then
+			push_vector = vector.add(push_vector, vector.direction(obj:get_pos(), self.pos))
+		end
+	end
+	push_vector = vector.normalize(push_vector)
+	return push_vector
+end
+
+function MobClass:set_animation(name, fspeed)
   if not self.animations[name] then return end
 
   local current_anim = self.object:get_animation()
@@ -433,7 +500,7 @@ function MobClass:set_animation(name)
   and current_anim.frame_speed == self.animations[name].z
   then return end
 
-  self.object:set_animation({x=self.animations[name].x, y=self.animations[name].y}, self.animations[name].z,0,true)
+  self.object:set_animation({x=self.animations[name].x, y=self.animations[name].y}, self.animations[name].z,0.1,true)
 end
 
 local function mob_step(self, dtime, moveresult) -- defines on_step for mobs
@@ -442,7 +509,7 @@ local function mob_step(self, dtime, moveresult) -- defines on_step for mobs
 
   self.do_step(self, dtime, moveresult)
 
-  self:set_animation("idle")
+
   --tick timer for each mob
   self.mobtimer = self.mobtimer or 0
   self.mobtimer = self.mobtimer+1
@@ -454,6 +521,7 @@ local function mob_step(self, dtime, moveresult) -- defines on_step for mobs
   do_jump(self, moveresult)
   movement(self,dtime,moveresult)
   head_logic(self)
+	do_animations(self)
 
   local pos = self.object:get_pos()
 
@@ -541,12 +609,19 @@ function lottmobs.register_mob(name, def) -- main function to create new mob
     ranged_reload_interval = def.ranged_reload_interval or 3, --base interval in seconds between each shot.
     --(used with dexterity to calculate overall interval)
 
+		--------------MISC
+
+		pos = vector.zero(),
+		vel = vector.zero(),
+		_cmi_is_mob = true,
+
     --------------- ANIMATION
 
     animations = def.animations or {},
     head_bone = def.head_bone or "Head_Control",
     head_bone_pos = def.head_bone_pos or vector.new(0,0,0),
     eye_height = def.eye_height or 1.4,
+		personal_space = def.personal_space or 2,
 
     ----------------TASK/OBJECTIVE RELATED
     objective = "",
@@ -595,7 +670,6 @@ function lottmobs.register_mob(name, def) -- main function to create new mob
       return minetest.serialize(tmp)
     end,
     on_punch = function(self, puncher, time_from_last_punch, tool_capabilities, dir, damage)
-
       return true
     end,
 		on_rightclick = function(self, clicker)
