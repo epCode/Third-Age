@@ -190,6 +190,7 @@ end
 
 
 
+
 function CharacterClass:set_trait(trait, value)
   self.personality_traits[trait] = value
 end
@@ -314,7 +315,7 @@ end
 local function do_jump(self, moveresult)
   local dir = minetest.yaw_to_dir(self.object:get_yaw())
   local vel = self.object:get_velocity()
-  local need_to_jump_pos = vector.add(vector.add(self.object:get_pos(), vector.new(0,0.4,0)), vector.add(vector.multiply(vel, 0.3), dir))
+  local need_to_jump_pos = vector.add(vector.add(self.pos, vector.new(0,0.4,0)), vector.add(vector.multiply(vel, 0.3), dir))
   local blockernode = vector.add(need_to_jump_pos, vector.new(0,1,0))
 
   local node = minetest.get_node(need_to_jump_pos)
@@ -330,13 +331,39 @@ end
 function MobClass:set_velocity(vel, offset)-- adds velocity based on the orientation of the object, offset turns that vector in degrees
   offset = offset or 0
   local dir = minetest.yaw_to_dir(self.object:get_yaw()+math.rad(offset))
-  self.object:add_velocity(
-    vector.multiply(
-      dir,
-      vel*(self.character.physical_traits.speed/10+1)
-    )
-  )
+	if self.swimming then
+		self._swim_timer = self._swim_timer - (dtime or 0.05)
+
+		self.object:add_velocity(
+			vector.multiply(
+				dir,
+				vel*(self.character.physical_traits.speed/10+1) * (self._swim_timer/self.swim_rate)
+			)
+		)
+		if self._swim_timer < 0 then
+
+			self:set_animation("swim_idle")
+			minetest.after(0.1, function() -- janky fix to play the same anim over again
+				if self and self.object and self.object:get_velocity() then
+					self:set_animation("swim")
+				end
+			end)
+			if math.random(2) == 1 then
+			else
+			end
+			self._swim_timer = self.swim_rate
+		end
+	else
+		self.object:add_velocity(
+			vector.multiply(
+				dir,
+				vel*(self.character.physical_traits.speed/10+1)
+			)
+		)
+	end
 end
+
+
 
 local function set_bone_position(obj, bone, pos, rot)
 	local current_pos, current_rot = obj:get_bone_position(bone)
@@ -356,10 +383,14 @@ end
 local dir_to_yaw = minetest.dir_to_yaw
 
 function MobClass:get_eye_pos(islocal)
+	subtrand = 0
+	if self.swimming then
+		subtrand = self.eye_height
+	end
 	if islocal then
-		return vector.new(0,self.eye_height,0)
+		return vector.new(0,self.eye_height-subtrand,0)
 	else
-		return vector.add(self.object:get_pos(),vector.new(0,self.eye_height,0))
+		return vector.add(self.pos,vector.new(0,self.eye_height-subtrand,0))
 	end
 end
 
@@ -369,12 +400,17 @@ function MobClass:look_at(pos)
   local yaw = dir_to_yaw(dir)
   local localyaw = self.object:get_yaw()
   local oldp,oldr = self.object:get_bone_position(self.head_bone)
+	local offset = vector.zero()
+	local current_anim = self:get_current_animation()
+	if self.animations[current_anim] and self.animations[current_anim].head_offset then
+		offset = self.animations[current_anim].head_offset
+	end
 	oldr.y = ((oldr.y+180)%360)-180
   local yawfade = shortest_term_of_yaw_rotation(self, math.rad(oldr.y), -yaw, true)
   if vector.dot(minetest.yaw_to_dir(localyaw), minetest.yaw_to_dir(yaw)) > 0.5 then -- limit head rot to 45 degrees
-    set_bone_position(self.object, self.head_bone, self.head_bone_pos, vector.new(-pitch,
+    set_bone_position(self.object, self.head_bone, self.head_bone_pos, vector.add(vector.new(-pitch,
       oldr.y+math.deg(localyaw)+yawfade
-    , 0))
+    , 0), offset))
 	else
 		set_bone_position(self.object, self.head_bone, self.head_bone_pos, vector.new(vector.multiply(oldr, 0.9)))
   end
@@ -386,6 +422,10 @@ local function head_logic(self)
   end
 end
 
+function MobClass:set_pos(pos)
+	self.object:set_pos(pos)
+	self.pos = pos
+end
 
 function MobClass:set_yaw(yaw, dtime)-- adds velocity based on the orientation of the object, offset turns that vector in degrees
   dtime = dtime or 0.05
@@ -399,9 +439,9 @@ function MobClass:set_yaw(yaw, dtime)-- adds velocity based on the orientation o
   local rot2 = shortest_term_of_yaw_rotation(self, selfyaw, yaw, true)
 
   if math.abs(rot2) > 10 then
-    --self.object:set_yaw(selfyaw+
-    --  (rot*(self.character.physical_traits.speed/20+0.5)/5)
-    --)
+    self.object:set_yaw(selfyaw+
+      (rot*(self.character.physical_traits.speed/20+0.5)/5)
+    )
   end
 end
 
@@ -425,13 +465,15 @@ local function movement(self,dtime,moveresult)
 
 
   if self.target_pos then -- go towards a target_pos if we deem it safe
-    self:go_to(self.target_pos, dtime)
+		if not self.swimming or (self._swim_timer/self.swim_rate) > 0.5 then
+			self:go_to(self.target_pos, dtime)
+		end
     if self.mood == "leisure" then
-      --self:set_velocity(0.4)
+      self:set_velocity(0.4, dtime)
     elseif self.mood == "determined" then
-      --self:set_velocity(0.5)
+      self:set_velocity(0.5, dtime)
     elseif self.mood == "disturbed" then
-      --self:set_velocity(0.7)
+      self:set_velocity(0.7, dtime)
     end
   end
 
@@ -450,6 +492,7 @@ function MobClass:go_to(pos, dtime) -- a hybrid way of going to a point without 
 	if not vector.equals(pushdir, vector.zero()) then
 		wander_dir = vector.normalize(vector.add(pushdir,wander_dir))
 	end
+
 	self:set_yaw(dir_to_yaw(wander_dir), dtime)
 end
 
@@ -459,28 +502,41 @@ end
 
 local function do_animations(self)
 	local animspeed
-	if self.mood == "leisure" or
-	self.mood == "determined" or
-	self.mood == "disturbed"
-	then
-		if self.mood == "disturbed" and self:get_xz_vel() > 0.3 then
-			self:set_animation("run")
-			animspeed = 1.5
-		elseif self.mood ~= "disturbed" and self:get_xz_vel() > 0.3 then
-			self:set_animation("walk")
-			animspeed = 1
-		else
-			self:set_animation("idle")
+	if self.swimming then
+
+		local rot = self.object:get_rotation()
+		self.object:set_rotation(vector.new(dir_to_pitch(self.vel),rot.y,rot.z))
+
+	else
+
+		local rot = self.object:get_rotation()
+		if rot.x ~= 0 then
+			self.object:set_rotation(vector.new(0,rot.y,rot.z))
 		end
-	end
-	if animspeed then
-		self:set_anim_speed(1)
+
+		if self.mood == "leisure" or
+		self.mood == "determined" or
+		self.mood == "disturbed"
+		then
+			if self.mood == "disturbed" and self:get_xz_vel() > 0.3 then
+				self:set_animation("run")
+				animspeed = 1.5
+			elseif self.mood ~= "disturbed" and self:get_xz_vel() > 0.3 then
+				self:set_animation("walk")
+				animspeed = 1
+			else
+				self:set_animation("idle")
+			end
+		end
+		if animspeed then
+			self:set_anim_speed(1)
+		end
 	end
 end
 
 function MobClass:_personal_space() -- returns the direction in which easiest to escape crowding
 	local push_vector = vector.zero()
-	local objs = minetest.get_objects_inside_radius(self.object:get_pos(), self.personal_space)
+	local objs = minetest.get_objects_inside_radius(self.pos, self.personal_space)
 	for _,obj in ipairs(objs) do
 		local luaentity = obj:get_luaentity()
 		if luaentity and luaentity ~= self and luaentity._cmi_is_mob then
@@ -491,21 +547,91 @@ function MobClass:_personal_space() -- returns the direction in which easiest to
 	return push_vector
 end
 
+function MobClass:get_current_animation()
+	local current_anim = self.object:get_animation()
+	if not self.animations or not current_anim then return end
+	for name,value in pairs(self.animations) do
+		if current_anim.x == value.anim.x
+	  and current_anim.y == value.anim.y then
+			return name
+		end
+	end
+	return ""
+end
+
 function MobClass:set_animation(name, fspeed)
   if not self.animations[name] then return end
 
+	local loop = true
+	if self.animations[name].loop == false then
+		loop = false
+	end
   local current_anim = self.object:get_animation()
-  if current_anim.range and current_anim.range.x == self.animations[name].x -- make sure we aren't setting the current animation again
-  and current_anim.range.y == self.animations[name].y
-  and current_anim.frame_speed == self.animations[name].z
+  if current_anim and current_anim.x == self.animations[name].anim.x -- make sure we aren't setting the current animation again
+  and current_anim.y == self.animations[name].anim.y
+  and current_anim.frame_speed == self.animations[name].anim.z
+	and loop
   then return end
 
-  self.object:set_animation({x=self.animations[name].x, y=self.animations[name].y}, self.animations[name].z,0.1,true)
+	self.object:set_animation({x=self.animations[name].anim.x, y=self.animations[name].anim.y}, self.animations[name].anim.z,0.1,loop)
+
+end
+
+function MobClass:is_swimming(pos)
+	local swimming_node = minetest.get_node(pos or self.pos)
+	local noddef = minetest.registered_nodes[swimming_node.name]
+	if noddef.liquidtype == "source" or noddef.liquidtype == "flowing" then
+		return true
+	end
+end
+
+local function line_of_sight(pos1, pos2)
+	local raycast = minetest.raycast(pos1, pos2, false, false)
+	for hitpoint in raycast do
+		if hitpoint.type == "node" then
+			return
+		end
+	end
+	return true
+end
+
+function MobClass:get_swim_depth()
+	local depth = 0
+	local floor_depth = 0
+	for i=0, 16 do
+		if not self:is_swimming(vector.add(self.pos, vector.new(0,i,0))) then
+			break
+		end
+		depth = i
+	end
+	for i=0, 16 do
+		if not self:is_swimming(vector.add(self.pos, vector.new(0,-i,0))) then
+			break
+		end
+		floor_depth = i
+	end
+	return depth, floor_depth
+end
+
+local function do_physics(self)
+	if self.swimming then
+		local final_depth, low_depth = self:get_swim_depth()
+		local final_swim_depth = self.swim_depth
+		if low_depth < 3 then
+			final_swim_depth = low_depth-2
+		end
+		self.object:set_acceleration({x=0,y=(final_depth-final_swim_depth)*3,z=0})
+		self.object:set_velocity(vector.new(self.vel.x, self.vel.y/1.1, self.vel.z))
+	else
+		self.object:set_acceleration({x=0,y=-self.gravity,z=0})
+	end
 end
 
 local function mob_step(self, dtime, moveresult) -- defines on_step for mobs
-	self.pos = self.object:get_pos() -- unused
+	self.pos = self.object:get_pos()
 	self.vel = self.object:get_velocity() -- unused
+
+
 
   self.do_step(self, dtime, moveresult)
 
@@ -518,12 +644,14 @@ local function mob_step(self, dtime, moveresult) -- defines on_step for mobs
     self.state = "wander"
   end
 
+	do_physics(self)
   do_jump(self, moveresult)
   movement(self,dtime,moveresult)
   head_logic(self)
 	do_animations(self)
+	self:get_current_animation()
 
-  local pos = self.object:get_pos()
+  local pos = self.pos
 
   if self.target then
 		local target_pos = vector.add(self.target:get_pos(), vector.new(0,1.4,0))
@@ -531,17 +659,26 @@ local function mob_step(self, dtime, moveresult) -- defines on_step for mobs
 			target_pos = vector.add(self.target:get_pos(), vector.new(0,self.target:get_properties().eye_height,0))
 		end
 
-    if minetest.line_of_sight(vector.add(pos, vector.new(0,0.1,0)), target_pos) or
-    minetest.line_of_sight(vector.add(pos, vector.new(0,0.4,0)), target_pos) or
-    minetest.line_of_sight(vector.add(pos, vector.new(0,0.8,0)), target_pos) or
-    minetest.line_of_sight(vector.add(pos, vector.new(0,1.3,0)), target_pos)
+    if line_of_sight(vector.add(pos, vector.new(0,0.1,0)), target_pos) or
+    line_of_sight(vector.add(pos, vector.new(0,0.4,0)), target_pos) or
+    line_of_sight(vector.add(pos, vector.new(0,0.8,0)), target_pos) or
+    line_of_sight(vector.add(pos, vector.new(0,1.3,0)), target_pos)
     then
       self.target_pos = target_pos
     end
   end
   -- runs ever 6 ticks
   if self.mobtimer % 6 == 1 then
-    for _,obj in pairs(minetest.get_objects_inside_radius(self.object:get_pos(), 10)) do
+
+		local swim_depth, swim_low = self:get_swim_depth()
+		if self:is_swimming() then
+			self.swimming = true
+		else
+			self.swimming = false
+		end
+
+
+    for _,obj in pairs(minetest.get_objects_inside_radius(self.pos, 10)) do
       if obj:is_player() then
         self.target = obj
       end
@@ -549,8 +686,6 @@ local function mob_step(self, dtime, moveresult) -- defines on_step for mobs
 
 
 
-    --apply gravity
-    self.object:set_acceleration({x=0,y=-self.gravity,z=0})
   end
 
 end
@@ -565,11 +700,14 @@ function lottmobs.register_mob(name, def) -- main function to create new mob
     hp_max = def.hp_max or 10, -- unused by our mobs. all health functions are in the lua
     visual = def.visual or "sprite",
     mesh = def.mesh,
-    textures = def.textures,
+		textures = def.textures,
+    textures_random = def.textures_random or {{""}},
     physical = def.physical or true,
     collide_with_objects = def.collide_with_objects or false,
-    collisionbox = def.collisionbox or {-0.3,-0,-0.3,0.3,1.6,0.3},
-    --selectionbox = def.selectionbox or {-0.3,-0,-0.3,0.3,0.3,1.6,0.3,},
+    collision_box = def.collision_box or {-0.3,-0,-0.3,0.3,1.6,0.3},
+    selection_box = def.selection_box or {-0.3,-0,-0.3,0.3,1.6,0.3},
+    collisionbox = def.collision_box or {-0.3,-0,-0.3,0.3,1.6,0.3},
+    selectionbox = def.selection_box or {-0.3,-0,-0.3,0.3,1.6,0.3},
     pointable = def.pointable or true,
     visual_size = def.visual_size or {x=1,y=1},
     spritediv = def.spritediv or {x=1,y=1},
@@ -611,9 +749,13 @@ function lottmobs.register_mob(name, def) -- main function to create new mob
 
 		--------------MISC
 
+		_swim_timer = 0,
+		swim_rate = def.swim_rate or 3, -- make sure you swim rate is at least a little longer than the swim animation otherwise they will be out of sync
+
 		pos = vector.zero(),
 		vel = vector.zero(),
 		_cmi_is_mob = true,
+		swim_depth = def.swim_depth or 1,
 
     --------------- ANIMATION
 
@@ -635,6 +777,11 @@ function lottmobs.register_mob(name, def) -- main function to create new mob
 
     on_step = mob_step,
     on_activate = function(self, staticdata, dtime_s)
+			if not self.textures then
+				self.object:set_properties({
+					textures = self.textures_random[math.random(#self.textures_random)]
+				})
+			end
       self.object:set_armor_groups({immortal=1})
       local tmp = minetest.deserialize(staticdata)
 
