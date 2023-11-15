@@ -168,6 +168,7 @@ function MobClass:show_character_form(clicker, formextra)
 	for trait,value in pairs(physical_traits) do
 		table.insert(physical_traits_readable,self.character:get_readable_trait(trait))
 	end
+	table.insert(physical_traits_readable,self.health.."\n-  Health\n---------------------------------------")
 
 	slist_personality = "hypertext[0.5,1.5;3,9;castables;<style><style color=#ffffff font=bold size=13>"..table.concat(personality_traits_readable,"\n").."</style>]"
 	slist_physical = "hypertext[4.5,1.5;3,9;castables;<style><style color=#ffffff font=bold size=13>"..table.concat(physical_traits_readable,"\n").."</style>]"
@@ -357,7 +358,7 @@ function MobClass:set_velocity(vel, offset)-- adds velocity based on the orienta
 		self.object:add_velocity(
 			vector.multiply(
 				dir,
-				vel*(self.character.physical_traits.speed/10+1)
+				vel*(self.character.physical_traits.speed/10+1)/4
 			)
 		)
 	end
@@ -440,7 +441,7 @@ function MobClass:set_yaw(yaw, dtime)-- adds velocity based on the orientation o
 
   if math.abs(rot2) > 10 then
     self.object:set_yaw(selfyaw+
-      (rot*(self.character.physical_traits.speed/20+0.5)/5)
+      (rot*(self.character.physical_traits.speed/20+0.5)/5)/12
     )
   end
 end
@@ -464,11 +465,11 @@ local function movement(self,dtime,moveresult)
 			self:go_to(self.target_pos, dtime)
 		end
     if self.mood == "leisure" then
-      self:set_velocity(0.4, dtime)
+      self:set_velocity(0.3, dtime)
     elseif self.mood == "determined" then
-      self:set_velocity(0.5, dtime)
+      self:set_velocity(0.4, dtime)
     elseif self.mood == "disturbed" then
-      self:set_velocity(0.7, dtime)
+      self:set_velocity(0.6, dtime)
     end
   end
 
@@ -568,7 +569,7 @@ function MobClass:set_animation(name, fspeed)
 	and loop
   then return end
 
-	self.object:set_animation({x=self.animations[name].anim.x, y=self.animations[name].anim.y}, self.animations[name].anim.z,0.1,loop)
+	self.object:set_animation({x=self.animations[name].anim.x, y=self.animations[name].anim.y}, self.animations[name].anim.z,0.4,loop)
 
 end
 
@@ -705,6 +706,10 @@ local function mob_step(self, dtime, moveresult) -- defines on_step for mobs
 
 end
 
+function MobClass:damage(num, dir, puncher)
+
+end
+
 
 function lottmobs.register_mob(name, def) -- main function to create new mob
 
@@ -743,6 +748,8 @@ function lottmobs.register_mob(name, def) -- main function to create new mob
     -----------Custom Mob Cells
 
     ----------- MOVMENT/ATTACK
+
+		base_health = def.base_health or 20,
     gravity = def.gravity or 9.81, -- gravity strength (none if nil or 0)
     max_speed = def.max_speed or 3, -- All-out sprint speed
     run_speed = def.run_speed or 2, -- Purousful walking
@@ -750,6 +757,9 @@ function lottmobs.register_mob(name, def) -- main function to create new mob
     jump_height = def.jump_height or 1, -- in block height, eg. value of 2 jumps over two blocks etc.
     view_range = def.view_range or 20, -- distance which the mob can see (effected by keen_sense)
     field_of_view = def.field_of_view or 60, -- how far to the sides the mob can see.
+		_swim_timer = 0,
+		swim_rate = def.swim_rate or 3, -- make sure you swim rate is at least a little longer than the swim animation otherwise they will be out of sync
+		swim_depth = def.swim_depth or 1,
     --eg. a value of 180 would see all around, 45 would only see a quarter chunk in front of them.
     reach = def.reach or 1, -- the maximum length that they can strike
     base_damage = def.base_damage or 1, -- damage inflicted without a weapon
@@ -764,13 +774,10 @@ function lottmobs.register_mob(name, def) -- main function to create new mob
 
 		--------------MISC
 
-		_swim_timer = 0,
-		swim_rate = def.swim_rate or 3, -- make sure you swim rate is at least a little longer than the swim animation otherwise they will be out of sync
 
 		pos = vector.zero(),
 		vel = vector.zero(),
 		_cmi_is_mob = true,
-		swim_depth = def.swim_depth or 1,
 
     --------------- ANIMATION
 
@@ -792,6 +799,8 @@ function lottmobs.register_mob(name, def) -- main function to create new mob
 
     on_step = mob_step,
     on_activate = function(self, staticdata, dtime_s)
+
+
 			if not self.textures then
 				self.object:set_properties({
 					textures = self.textures_random[math.random(#self.textures_random)]
@@ -808,6 +817,7 @@ function lottmobs.register_mob(name, def) -- main function to create new mob
 
       if not self.character then
         self.character = lottmobs.create_character()
+				self.health = self.base_health * (self.character:get_trait("constitution") * 0.12+0.14) -- largest multiple = 1.3 and lowest = 0.76
       end
 			self.character = setmetatable(self.character, lottmobs.MetaCharacterClass)
       if not self._no_more_on_spawn and self.on_spawn(self, staticdata, dtime_s) then
@@ -832,6 +842,11 @@ function lottmobs.register_mob(name, def) -- main function to create new mob
       return minetest.serialize(tmp)
     end,
     on_punch = function(self, puncher, time_from_last_punch, tool_capabilities, dir, damage)
+			if puncher:is_player() then
+				local witem = puncher:get_wielded_item()
+				local reach = minetest.registered_items[witem].reach
+			end
+			self:damage(math.random(5), dir, puncher)
       return true
     end,
 		on_rightclick = function(self, clicker)

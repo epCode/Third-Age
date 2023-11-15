@@ -2,12 +2,7 @@ lottmobs.register_mob("lottmobs:man", {
   visual = "mesh",
   mesh = "lottmobs_man.b3d",
   textures_random = {
-    {"elf_female_basic.png"},
-    {"elf_female_basic_green.png"},
-    {"galadriel.png"},
-    {"rivendell_elf_armor_hair.png"},
-    {"rivendell_elf_armor_helmet.png"},
-    {"tauriel.png"},
+    {"elf_female_basic.png", "blank.png"},
   },
   collision_box = {-0.3,-0,-0.3,0.3,1.6,0.3},
   animations = {
