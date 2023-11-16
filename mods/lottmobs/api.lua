@@ -358,7 +358,7 @@ function MobClass:set_velocity(vel, offset)-- adds velocity based on the orienta
 		self.object:add_velocity(
 			vector.multiply(
 				dir,
-				vel*(self.character.physical_traits.speed/10+1)/4
+				vel*(self.character.physical_traits.speed/10+1)
 			)
 		)
 	end
@@ -408,7 +408,7 @@ function MobClass:look_at(pos)
 	end
 	oldr.y = ((oldr.y+180)%360)-180
   local yawfade = shortest_term_of_yaw_rotation(self, math.rad(oldr.y), -yaw, true)
-  if vector.dot(minetest.yaw_to_dir(localyaw), minetest.yaw_to_dir(yaw)) > 0.5 then -- limit head rot to 45 degrees
+  if vector.dot(minetest.yaw_to_dir(localyaw), minetest.yaw_to_dir(yaw)) > 0.5 and not self.swimming then -- limit head rot to 45 degrees
     set_bone_position(self.object, self.head_bone, self.head_bone_pos, vector.add(vector.new(-pitch,
       oldr.y+math.deg(localyaw)+yawfade
     , 0), offset))
@@ -441,7 +441,7 @@ function MobClass:set_yaw(yaw, dtime)-- adds velocity based on the orientation o
 
   if math.abs(rot2) > 10 then
     self.object:set_yaw(selfyaw+
-      (rot*(self.character.physical_traits.speed/20+0.5)/5)/12
+      (rot*(self.character.physical_traits.speed/20+0.5)/5)
     )
   end
 end
@@ -451,7 +451,6 @@ local function movement(self,dtime,moveresult)
 
   self.mood = "leisure"
 
-  self.object:set_velocity(vector.new(vel.x*0.85, vel.y, vel.z*0.85))
   if self.state == "wander" then
     -- WANDER code
   end
@@ -613,6 +612,7 @@ end
 
 local function do_physics(self)
 	if self.swimming then
+
 		local prefered_depth = self.swim_depth
 		local final_depth, low_depth = self:get_swim_depth()
 		if self.target_pos then
@@ -626,19 +626,33 @@ local function do_physics(self)
 			prefered_depth = low_depth-2
 		end
 
-		local land = self:is_swimming(
-			vector.add(self.pos, minetest.yaw_to_dir(self.object:get_yaw()))
-		)
+		if self:check_for_death() then -- if were dead and on the water then float
+			prefered_depth = 0
+		else
+			local land = self:is_swimming(
+				vector.add(self.pos, minetest.yaw_to_dir(self.object:get_yaw()))
+			)
 
-		if not land then
-			prefered_depth = -1
+			if not land then
+				prefered_depth = -1
+			end
 		end
-		print(final_depth-prefered_depth)
 
 		self.object:set_acceleration({x=0,y=(final_depth-prefered_depth)*1.3,z=0}) -- make sure we are on the right swim depth
 		self.object:set_velocity(vector.new(self.vel.x, self.vel.y/1.1, self.vel.z))
 	else
 		self.object:set_acceleration({x=0,y=-self.gravity,z=0})
+	end
+	local vel = self.object:get_velocity()
+	if not (self.swimming and self:check_for_death()) then
+		self.object:set_velocity(vector.new(vel.x*0.85, vel.y, vel.z*0.85))
+	else
+		if self.yaw_vel then -- some rotation while simming in death for more imersion
+			local yaw = self.object:get_yaw()
+			self.object:set_properties({automatic_rotate=self.yaw_vel})
+			self.yaw_vel = self.yaw_vel/1.01
+		end
+		self.object:set_velocity(vector.new(vel.x*0.99, vel.y, vel.z*0.99))
 	end
 end
 
@@ -646,6 +660,8 @@ local function mob_step(self, dtime, moveresult) -- defines on_step for mobs
 	self.pos = self.object:get_pos()
 	self.vel = self.object:get_velocity() -- unused
 
+	do_physics(self)
+	if self:check_for_death() then return end
 
 
   self.do_step(self, dtime, moveresult)
@@ -659,7 +675,6 @@ local function mob_step(self, dtime, moveresult) -- defines on_step for mobs
     self.state = "wander"
   end
 
-	do_physics(self)
   do_jump(self, moveresult)
   movement(self,dtime,moveresult)
   head_logic(self)
@@ -706,8 +721,39 @@ local function mob_step(self, dtime, moveresult) -- defines on_step for mobs
 
 end
 
+function MobClass:die()
+	self.health = 0
+	local back_or_front = 0
+	if self.swimming then
+		back_or_front= math.rad(math.random(0,1)*180)
+		self.yaw_vel=(math.random(100)-50)/40
+	end
+	local rot = self.object:get_rotation()
+	self.object:set_rotation(vector.new(0,rot.y,back_or_front))
+	self.object:set_bone_position(self.head_bone, self.head_bone_pos, self.death_head_bone_rot)
+	self.dead = true
+end
+
+
+function MobClass:check_for_death()
+	if self.health <= 0 then
+		self:set_animation("die")
+		if not self.dead then -- unless we have already run the die func, run it
+			self:die()
+		end
+		return true
+	end
+	return
+end
+
+
 function MobClass:damage(num, dir, puncher)
 
+	self.health = self.health-num-(self.armor_prot/100*num)
+
+	if self:check_for_death() then return end
+
+	self.object:add_velocity(vector.multiply(dir, 10))
 end
 
 
@@ -749,6 +795,8 @@ function lottmobs.register_mob(name, def) -- main function to create new mob
 
     ----------- MOVMENT/ATTACK
 
+		death_head_bone_rot = def.death_head_bone_rot or vector.new(90,0,0), -- what rotation the head will go to when dead
+		armor_prot = 0,
 		base_health = def.base_health or 20,
     gravity = def.gravity or 9.81, -- gravity strength (none if nil or 0)
     max_speed = def.max_speed or 3, -- All-out sprint speed
@@ -781,6 +829,7 @@ function lottmobs.register_mob(name, def) -- main function to create new mob
 
     --------------- ANIMATION
 
+		_textures = nil,
     animations = def.animations or {},
     head_bone = def.head_bone or "Head_Control",
     head_bone_pos = def.head_bone_pos or vector.new(0,0,0),
@@ -801,11 +850,13 @@ function lottmobs.register_mob(name, def) -- main function to create new mob
     on_activate = function(self, staticdata, dtime_s)
 
 
-			if not self.textures then
-				self.object:set_properties({
-					textures = self.textures_random[math.random(#self.textures_random)]
-				})
+			if not self._textures then
+				self._textures = self.textures_random[math.random(#self.textures_random)]
 			end
+
+			self.object:set_properties({
+				textures = self._textures
+			})
       self.object:set_armor_groups({immortal=1})
       local tmp = minetest.deserialize(staticdata)
 
@@ -843,9 +894,21 @@ function lottmobs.register_mob(name, def) -- main function to create new mob
     end,
     on_punch = function(self, puncher, time_from_last_punch, tool_capabilities, dir, damage)
 			if puncher:is_player() then
+				local puncher_pos = puncher:get_pos()
 				local witem = puncher:get_wielded_item()
-				local reach = minetest.registered_items[witem].reach
+				local range = minetest.registered_items[witem:get_name()].range or 4.5
+				local raycast = minetest.raycast(vector.add(puncher_pos, vector.new(0,puncher:get_properties().eye_height,0)),
+				vector.add(puncher_pos, vector.multiply(puncher:get_look_dir(), range/1.5)), true, false) -- try to get the same raycast for normal hitting with a 1.5 times shorter range
+				local hit
+				for hitpoint in raycast do
+					if hitpoint.type == "object" and hitpoint.ref:get_luaentity() and hitpoint.ref:get_luaentity() == self then
+						hit = true
+					end
+				end
+				if not hit then return end
 			end
+
+
 			self:damage(math.random(5), dir, puncher)
       return true
     end,

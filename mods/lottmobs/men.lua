@@ -3,6 +3,9 @@ lottmobs.register_mob("lottmobs:man", {
   mesh = "lottmobs_man.b3d",
   textures_random = {
     {"elf_female_basic.png", "blank.png"},
+    {"elf_female_basic_green.png", "blank.png"},
+    {"galadriel.png", "blank.png"},
+    {"tauriel.png", "blank.png"},
   },
   collision_box = {-0.3,-0,-0.3,0.3,1.6,0.3},
   animations = {
@@ -41,6 +44,9 @@ lottmobs.register_mob("lottmobs:man", {
     }, -- x and y are start and end points, z is anim speed
     swim_idle = {
       anim=vector.new(680,680,24), head_offset = vector.new(-90,0,0)
+    }, -- x and y are start and end points, z is anim speed
+    die = {
+      anim=vector.new(780,790,24)
     }, -- x and y are start and end points, z is anim speed
   },
   head_bone_pos = vector.new(0,8,0),
