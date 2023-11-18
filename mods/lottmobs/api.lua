@@ -222,6 +222,7 @@ local function initialize_character_object() -- create base character
     level = 1, -- increased with slain creatures and experience
     name = "", -- given name
     surname = "", -- surname if applicable
+		texture = nil,
     personality_traits = {
       frugality = 1, ----- (1-10) how carful with resources he is (the only negetive personality trait)
       honesty = 1, ------- (1-10) how honest he is
@@ -464,7 +465,7 @@ local function movement(self,dtime,moveresult)
 			self:go_to(self.target_pos, dtime)
 		end
     if self.mood == "leisure" then
-      self:set_velocity(0.3, dtime)
+      self:set_velocity(0.25, dtime)
     elseif self.mood == "determined" then
       self:set_velocity(0.4, dtime)
     elseif self.mood == "disturbed" then
@@ -854,9 +855,7 @@ function lottmobs.register_mob(name, def) -- main function to create new mob
 				self._textures = self.textures_random[math.random(#self.textures_random)]
 			end
 
-			self.object:set_properties({
-				textures = self._textures
-			})
+
       self.object:set_armor_groups({immortal=1})
       local tmp = minetest.deserialize(staticdata)
 
@@ -869,7 +868,11 @@ function lottmobs.register_mob(name, def) -- main function to create new mob
       if not self.character then
         self.character = lottmobs.create_character()
 				self.health = self.base_health * (self.character:get_trait("constitution") * 0.12+0.14) -- largest multiple = 1.3 and lowest = 0.76
+				self.character.texture = self._textures
       end
+			self.object:set_properties({
+				textures = self.character.texture
+			})
 			self.character = setmetatable(self.character, lottmobs.MetaCharacterClass)
       if not self._no_more_on_spawn and self.on_spawn(self, staticdata, dtime_s) then
         -- run per mob defined on_spawn(self, etc.) but if returned true don't run again
