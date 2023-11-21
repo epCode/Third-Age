@@ -193,7 +193,11 @@ end
 
 
 function CharacterClass:set_trait(trait, value)
-  self.personality_traits[trait] = value
+	if self.personality_traits[trait] then
+		self.personality_traits[trait] = value
+	else
+	  self.physical_traits[trait] = value
+	end
 end
 function CharacterClass:get_trait(trait)
   return self.personality_traits[trait] or self.physical_traits[trait]
@@ -409,13 +413,16 @@ function MobClass:look_at(pos)
 	end
 	oldr.y = ((oldr.y+180)%360)-180
   local yawfade = shortest_term_of_yaw_rotation(self, math.rad(oldr.y), -yaw, true)
+
+	local head_rot = vector.new(vector.multiply(oldr, 0.9))
   if vector.dot(minetest.yaw_to_dir(localyaw), minetest.yaw_to_dir(yaw)) > 0.5 and not self.swimming then -- limit head rot to 45 degrees
-    set_bone_position(self.object, self.head_bone, self.head_bone_pos, vector.add(vector.new(-pitch,
+		head_rot = vector.add(vector.new(-pitch,
       oldr.y+math.deg(localyaw)+yawfade
-    , 0), offset))
-	else
-		set_bone_position(self.object, self.head_bone, self.head_bone_pos, vector.new(vector.multiply(oldr, 0.9)))
+    , 0), offset)
+	elseif self.swimming and self.head_bone_swim_rot then
+		head_rot = self.head_bone_swim_rot
   end
+	set_bone_position(self.object, self.head_bone, self.head_bone_pos, head_rot)
 end
 
 local function head_logic(self)
@@ -498,12 +505,7 @@ end
 
 local function do_animations(self)
 	local animspeed
-	if self.swimming then
-
-		local rot = self.object:get_rotation()
-		self.object:set_rotation(vector.new(dir_to_pitch(self.vel),rot.y,rot.z))
-
-	else
+	if not self.swimming then
 
 		local rot = self.object:get_rotation()
 		if rot.x ~= 0 then
@@ -614,6 +616,7 @@ end
 local function do_physics(self)
 	if self.swimming then
 
+
 		local prefered_depth = self.swim_depth
 		local final_depth, low_depth = self:get_swim_depth()
 		if self.target_pos then
@@ -657,20 +660,95 @@ local function do_physics(self)
 	end
 end
 
+function MobClass:remove_texture_mod(mod)
+	local full_mod = ""
+	local remove = {}
+	for i=1, #self.texture_mods do
+		if self.texture_mods[i] ~= mod then
+			full_mod = full_mod .. self.texture_mods[i]
+		else
+			table.insert(remove, i)
+		end
+	end
+	for i=#remove, 1 do
+		table.remove(self.texture_mods, remove[i])
+	end
+	self.object:set_texture_mod(full_mod)
+end
+
+
+function MobClass:add_texture_mod(mod)
+	local full_mod = ""
+	local already_added = false
+	for i=1, #self.texture_mods do
+		if mod == self.texture_mods[i] then
+			already_added = true
+		end
+		full_mod = full_mod .. self.texture_mods[i]
+	end
+	if not already_added then
+		full_mod = full_mod .. mod
+		table.insert(self.texture_mods, mod)
+	end
+	self.object:set_texture_mod(full_mod)
+end
+
+local function do_attack(self)
+	for _,obj in pairs(minetest.get_objects_inside_radius(self.pos, self.view_range*(self.character:get_trait("keen_sense")/10+0.5))) do
+
+		local dir_to = vector.direction(self:get_eye_pos(),obj:get_pos())
+		local dir = minetest.yaw_to_dir(self.object:get_yaw())
+		local dot = (vector.dot(dir_to, dir)+1)*0.5
+		if obj:is_player() and self.field_of_view <= dot then
+			self.target = obj
+		end
+	end
+end
+
 local function mob_step(self, dtime, moveresult) -- defines on_step for mobs
+
+	local vel = self.object:get_velocity()
+
+	if self.vel and self.vel then
+		local speed_change = math.abs(math.abs(self.vel.y)-math.abs(vel.y))*self.fall_damage
+		if speed_change > 10 then
+			self:damage(speed_change-9)
+		end
+	end
+
 	self.pos = self.object:get_pos()
-	self.vel = self.object:get_velocity() -- unused
+	self.vel = vel
+	if self.damaged_timer ~= -100 and self.damaged_timer < 0 then -- if the damaged timer is below zero, reset texture mod
+		self.damaged_timer = -100
+		self:remove_texture_mod(self.damage_texture_modifier)
+	elseif self.damaged_timer ~= -100 then
+		self.damaged_timer = self.damaged_timer - dtime
+	end
+
+	self.hit_interval_timer = self.hit_interval_timer or 0
+	self.hit_interval_timer = self.hit_interval_timer+dtime
+
+	--tick timer for each mob
+	self.mobtimer = self.mobtimer or 0
+	self.mobtimer = self.mobtimer+1
+
+	if self.mobtimer % 6 == 5 then -- one out of every 6 ticks
+
+		if self:check_for_death() then
+			if self:is_swimming() and not self.yaw_vel then
+				self.swimming = true
+				self:die() -- run the die function again now that we are out of the water
+			end
+		end
+	end
 
 	do_physics(self)
-	if self:check_for_death() then return end
+	if self:check_for_death() then return	end
 
 
   self.do_step(self, dtime, moveresult)
 
 
-  --tick timer for each mob
-  self.mobtimer = self.mobtimer or 0
-  self.mobtimer = self.mobtimer+1
 
   if self.objective == "" then
     self.state = "wander"
@@ -684,12 +762,32 @@ local function mob_step(self, dtime, moveresult) -- defines on_step for mobs
 
   local pos = self.pos
 
+	self.character:set_trait("speed", 10)
 
-  -- runs ever 6 ticks
-  if self.mobtimer % 6 == 1 then
+	-- runs a veriable amount of ticks based on speed trait
+	local speed = math.abs(self.character:get_trait("speed")-10)/8+0.2
+	if self.hit_interval_timer > speed then
+		self.hit_interval_timer = 0
+		print("hit")
+	end
+
+
+
+  -- runs ever 20 ticks
+  if self.mobtimer % 20 == 1 then
+
+		if not self.target then
+			do_attack(self)
+		end
+
+
 
 		local swim_depth, swim_low = self:get_swim_depth()
-		if self:is_swimming() then
+		local swimpos = self.pos
+		if not self.swimming then
+			swimpos = self:get_eye_pos()
+		end
+		if self:is_swimming(swimpos) then
 			self.swimming = true
 		else
 			self.swimming = false
@@ -710,11 +808,7 @@ local function mob_step(self, dtime, moveresult) -- defines on_step for mobs
 	    end
 	  end
 
-    for _,obj in pairs(minetest.get_objects_inside_radius(self.pos, 40)) do
-      if obj:is_player() then
-        self.target = obj
-      end
-    end
+
 
 
 
@@ -725,11 +819,11 @@ end
 function MobClass:die()
 	self.health = 0
 	local back_or_front = 0
+	local rot = self.object:get_rotation()
 	if self.swimming then
-		back_or_front= math.rad(math.random(0,1)*180)
+		back_or_front = math.rad(math.random(0,1)*180)
 		self.yaw_vel=(math.random(100)-50)/40
 	end
-	local rot = self.object:get_rotation()
 	self.object:set_rotation(vector.new(0,rot.y,back_or_front))
 	self.object:set_bone_position(self.head_bone, self.head_bone_pos, self.death_head_bone_rot)
 	self.dead = true
@@ -748,13 +842,22 @@ function MobClass:check_for_death()
 end
 
 
-function MobClass:damage(num, dir, puncher)
+function MobClass:damage(num, puncher, dir)
+
 
 	self.health = self.health-num-(self.armor_prot/100*num)
 
 	if self:check_for_death() then return end
 
-	self.object:add_velocity(vector.multiply(dir, 10))
+	if dir then
+		self.object:add_velocity(vector.multiply(dir, 10))
+	end
+
+	print(num)
+
+	self.damaged_timer = 0.2
+	self:add_texture_mod(self.damage_texture_modifier)
+
 end
 
 
@@ -791,12 +894,20 @@ function lottmobs.register_mob(name, def) -- main function to create new mob
     nametag = def.nametag or "",
     static_save = def.static_save or true,
     show_on_minimap = def.show_on_minimap,
-
+		damage_texture_modifier = "^[colorize:#ff0000:120",
     -----------Custom Mob Cells
 
-    ----------- MOVMENT/ATTACK
+		-----------CLASS/RACE stuff
+		race = def.race or "man",
+		faction = def.faction or "gondor",
+		faction_group = def.faction_group or "minas_tirith",
 
+    ----------- MOVMENT/ATTACK
+		texture_mods = {},
+		fall_damage = def.fall_damage or 1,
+		damaged_timer = 0,
 		death_head_bone_rot = def.death_head_bone_rot or vector.new(90,0,0), -- what rotation the head will go to when dead
+		head_bone_swim_rot = def.head_bone_swim_rot,
 		armor_prot = 0,
 		base_health = def.base_health or 20,
     gravity = def.gravity or 9.81, -- gravity strength (none if nil or 0)
@@ -805,7 +916,7 @@ function lottmobs.register_mob(name, def) -- main function to create new mob
     default_speed = def.default_speed or 1, -- default wander speed
     jump_height = def.jump_height or 1, -- in block height, eg. value of 2 jumps over two blocks etc.
     view_range = def.view_range or 20, -- distance which the mob can see (effected by keen_sense)
-    field_of_view = def.field_of_view or 60, -- how far to the sides the mob can see.
+    field_of_view = def.field_of_view or 0.4, -- how far to the sides the mob can see. 0 is nonexistant, 1 is 360 view so (0-1)
 		_swim_timer = 0,
 		swim_rate = def.swim_rate or 3, -- make sure you swim rate is at least a little longer than the swim animation otherwise they will be out of sync
 		swim_depth = def.swim_depth or 1,
@@ -912,7 +1023,7 @@ function lottmobs.register_mob(name, def) -- main function to create new mob
 			end
 
 
-			self:damage(math.random(5), dir, puncher)
+			self:damage(math.random(5), puncher, dir)
       return true
     end,
 		on_rightclick = function(self, clicker)
