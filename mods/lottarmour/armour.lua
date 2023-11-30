@@ -331,10 +331,22 @@ minetest.register_on_joinplayer(function(player)
 	-- Create armour inventory
 	local armour = minetest.create_detached_inventory(name.."_armour", {
 		on_put = function(inv, listname, index, stack, player)
+			if index == 6 then
+				local ring = stack:get_name()
+				if ring ~= "" and lottrings.ring_funcs[ring] then
+		      lottrings.ring_funcs[ring].on_put_on(player)
+		    end
+			end
 			player_inv:set_stack(listname, index, stack)
 			lottarmour.equip_armour(player)
 		end,
 		on_take = function(inv, listname, index, stack, player)
+			if index == 6 then
+				local ring = stack:get_name()
+				if ring ~= "" and lottrings.ring_funcs[ring] then
+					lottrings.ring_funcs[ring].on_take_off(player)
+				end
+			end
 			player_inv:set_stack(listname, index, nil)
 			lottarmour.equip_armour(player)
 		end,
@@ -357,6 +369,16 @@ minetest.register_on_joinplayer(function(player)
 				if stack:get_definition().groups.armour_shield == nil then return 0 else return 1 end
 			elseif index == 6 then
 				if stack:get_definition().groups.armour_ring == nil then return 0 else return 1 end
+			elseif index == 7 then
+				if stack:get_definition().groups.clothing_helmet == nil then return 0 else return 1 end
+			elseif index == 8 then
+				if stack:get_definition().groups.clothing_chestplate == nil then return 0 else return 1 end
+			elseif index == 9 then
+				if stack:get_definition().groups.clothing_leggings == nil then return 0 else return 1 end
+			elseif index == 10 then
+				if stack:get_definition().groups.clothing_boots == nil then return 0 else return 1 end
+			elseif index == 11 then
+				if stack:get_definition().groups.clothing_cape == nil then return 0 else return 1 end
 			end
 		end,
 		allow_move = function(inv, from_list, from_index, to_list, to_index, count, player)
@@ -367,7 +389,7 @@ minetest.register_on_joinplayer(function(player)
 	armour:set_size("armour", 11)
 	-- Save armour inventory
 	player_inv:set_size("armour", 11)
-	for i = 1,5 do
+	for i = 1,11 do
 		local stack = player_inv:get_stack("armour", i)
 		armour:set_stack("armour", i, stack)
 	end
