@@ -82,60 +82,60 @@ lottarmour.equip_armour = function(player)
 	local name = player:get_player_name()
 	local meta = player:get_meta()
 	local inv = minetest.get_inventory({type="detached", name=name.."_armour"})
-	
+
 	local armour = {}
 	for k,v in ipairs(lottarmour_list.type) do
 		armour[v] = 0
 	end
 	local armour_physics = {speed = 0, gravity = 0, jump = 0}
-	
+
 	-- Calculate cumulative armour groups / physics
 	for i = 1, 5 do
 		local stack = inv:get_stack("armour", i)
 		local group = stack:get_definition().groups
-		
+
 		for k,v in ipairs(lottarmour_list.type) do
 			if group["armour_"..v] then
 				armour[v] = armour[v] + group["armour_"..v]
 			end
 		end
-		
+
 		for k,v in ipairs(lottarmour_list.physics) do
 			if group["armour_"..v] then
 				armour_physics[v] = armour_physics[v] + group["armour_"..v]
 			end
 		end
 	end
-	
+
 	-- Apply armour groups
 	for k,v in ipairs(lottarmour_list.type) do
 		meta:set_string("lottarmour:"..v, armour[v])
-		
+
 		armour[v] = 100 - armour[v]
 		if armour[v] < 0 then
 			armour[v] = 0
 		end
 	end
-	
+
 	local armor_groups = {fleshy = armour.fleshy, pierce = armour.pierce, blunt = armour.blunt, stab = armour.stab}
 	local immortal = player:get_armor_groups().immortal
 	if immortal and immortal ~= 0 then
 		armor_groups.immortal = 1
 	end
 	player:set_armor_groups(armor_groups)
-	
+
 	-- Apply physics
 	for k,v in ipairs(lottarmour_list.physics) do
 		lottplayer.clear_physics(player, "lottarmour:"..v)
 		lottplayer.physics(player, "lottarmour:"..v, v, armour_physics[v], nil)
 	end
-	
+
 	-- Apply texture
 	local textures = lottplayer.textures[name]
 	if not textures then
 		return
 	end
-	
+
 	local armour_texture = {}
 	for k,v in ipairs(lottarmour_list.atype) do
 		local stack = inv:get_stack("armour", k)
@@ -160,15 +160,15 @@ controls.register_on_hold(function(player, key, time)
 	local inv = minetest.get_inventory({type="detached", name=name.."_armour"})
 	local shield = inv:get_stack("armour", 5):get_name()
 	local shieldn = string.gsub(shield, "lottarmour:", "")
-	
+
 	if key == "sneak" then
 		if meta:get_string("lott:shield_state") == "" and lottarmour.shield[name.."_hud"] ~= nil then
 			player:hud_remove(lottarmour.shield[name.."_hud"])
 			lottarmour.shield[name.."_hud"] = nil
 		end
-		
+
 		if shield ~= "" and lottarmour.shield[name.."_cd"] == nil then
-			if meta:get_string("lott:shield_state") == "" then 
+			if meta:get_string("lott:shield_state") == "" then
 				meta:set_string("lott:shield_state", 1)
 				lottarmour.shield[name.."_hud"] = player:hud_add({
 					hud_elem_type = "image",
@@ -201,7 +201,7 @@ lottarmour.on_hit = function(player, damage, shield)
 	local meta = player:get_meta()
 	local inv = minetest.get_inventory({type="detached", name=name.."_armour"})
 	local player_inv = player:get_inventory()
-	
+
 	if damage > 1 then
 		damage = damage / 2
 	elseif damage < 0 then
@@ -209,18 +209,18 @@ lottarmour.on_hit = function(player, damage, shield)
 	elseif damage == 0 then
 		damage = 1
 	end
-	
+
 	if shield then
 		local stack = inv:get_stack("armour", 5)
 		local group = stack:get_definition().groups
-		
+
 		if stack:get_name() ~= "" then
 			local wear = group["armour_wear"] or 0
 			local wear_mod = wear * damage
 			stack:add_wear(wear_mod)
 			inv:set_stack("armour", 5, stack)
 			player_inv:set_stack("armour", 5, stack)
-			
+
 			local bwear = stack:get_wear() - wear_mod
 			if bwear < 0 then
 				minetest.sound_play("tool_breaks", {
@@ -232,18 +232,18 @@ lottarmour.on_hit = function(player, damage, shield)
 			end
 		end
 	end
-	
+
 	for i = 1, 4 do
 		local stack = inv:get_stack("armour", i)
 		local group = stack:get_definition().groups
-		
+
 		if stack:get_name() ~= "" then
 			local wear = group["armour_wear"] or 0
 			local wear_mod = wear * damage
 			stack:add_wear(wear_mod)
 			inv:set_stack("armour", i, stack)
 			player_inv:set_stack("armour", i, stack)
-			
+
 			local bwear = stack:get_wear() - wear_mod
 			if bwear < 0 then
 				minetest.sound_play("tool_breaks", {
@@ -263,19 +263,19 @@ minetest.register_on_punchplayer(function(player, hitter, time_from_last_punch, 
 	local meta = player:get_meta()
 	local inv = minetest.get_inventory({type="detached", name=name.."_armour"})
 	local shield = inv:get_stack("armour", 5):get_definition().groups
-	
+
 	-- Shield blocking
 	if meta:get_string("lott:shield_state") ~= "" then
-		if tonumber(shield["armour_block"]) then 
-			
+		if tonumber(shield["armour_block"]) then
+
 			meta:set_string("lott:shield_state", "")
 			minetest.after(0.1, function()
 				player:hud_remove(lottarmour.shield[name.."_hud"])
 				lottarmour.shield[name.."_hud"] = nil
 			end)
-			
+
 			lottarmour.on_hit(player, damage, true)
-			
+
 			-- Determine whether successful block or disarm
 			if math.random(1,100) <= shield["armour_block"] then
 				minetest.sound_play("shield", {
@@ -283,7 +283,7 @@ minetest.register_on_punchplayer(function(player, hitter, time_from_last_punch, 
 					max_hear_distance = 10,
 					gain = 10.0,
 				})
-				
+
 				lottarmour.shield[name.."_cd"] = shield["armour_block_cd"]
 				minetest.after(shield["armour_block_cd"], function()
 					lottarmour.shield[name.."_cd"] = nil
@@ -311,7 +311,7 @@ minetest.register_on_joinplayer(function(player)
 	local name = player:get_player_name()
 	local meta = player:get_meta()
 	local player_inv = player:get_inventory()
-	
+
 	if player:get_armor_groups().blunt == nil then
 		local armor_groups = {fleshy = 100, pierce = 100, blunt = 100, stab = 100}
 		local immortal = player:get_armor_groups().immortal
@@ -320,14 +320,14 @@ minetest.register_on_joinplayer(function(player)
 		end
 		player:set_armor_groups(armor_groups)
 	end
-	
+
 	if meta:get_string("lottarmour:fleshy") == "" then
 		meta:set_string("lottarmour:fleshy", 0)
 		meta:set_string("lottarmour:pierce", 0)
 		meta:set_string("lottarmour:blunt", 0)
 		meta:set_string("lottarmour:stab", 0)
 	end
-	
+
 	-- Create armour inventory
 	local armour = minetest.create_detached_inventory(name.."_armour", {
 		on_put = function(inv, listname, index, stack, player)
@@ -343,6 +343,8 @@ minetest.register_on_joinplayer(function(player)
 			lottarmour.equip_armour(player)
 		end,
 		allow_put = function(inv, listname, index, stack, player)
+			print("index: "..index)
+			print("listname: "..listname)
 			if index == 1 then
 				if stack:get_definition().groups.armour_helmet == nil then return 0 else return 1 end
 			elseif index == 2 then
@@ -353,6 +355,8 @@ minetest.register_on_joinplayer(function(player)
 				if stack:get_definition().groups.armour_boots == nil then return 0 else return 1 end
 			elseif index == 5 then
 				if stack:get_definition().groups.armour_shield == nil then return 0 else return 1 end
+			elseif index == 6 then
+				if stack:get_definition().groups.armour_ring == nil then return 0 else return 1 end
 			end
 		end,
 		allow_move = function(inv, from_list, from_index, to_list, to_index, count, player)
@@ -360,13 +364,13 @@ minetest.register_on_joinplayer(function(player)
 		end,
 	}, name)
 
-	armour:set_size("armour", 5)
+	armour:set_size("armour", 11)
 	-- Save armour inventory
-	player_inv:set_size("armour", 5)
+	player_inv:set_size("armour", 11)
 	for i = 1,5 do
 		local stack = player_inv:get_stack("armour", i)
 		armour:set_stack("armour", i, stack)
 	end
-	
-	lottarmour.equip_armour(player)	
+
+	lottarmour.equip_armour(player)
 end)
