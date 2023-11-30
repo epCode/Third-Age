@@ -29,5 +29,6 @@ lottmobs.register_mob("lottmobs:man", {
   personal_space = 2,
   swim_depth = 0,
   swim_rate = 2,
-  head_bone_swim_rot = vector.new(-90,0,0)
+  head_bone_swim_rot = vector.new(-90,0,0),
+  reach = 3,
 })

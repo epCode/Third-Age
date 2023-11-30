@@ -1,3 +1,57 @@
+
+minetest.register_entity("lottmobs:wieldview", {
+	initial_properties = {
+		hp_max           = 1,
+		visual           = "wielditem",
+		physical         = false,
+		is_visible       = false,
+		pointable        = false,
+		collide_with_objects = false,
+		static_save = false,
+		collisionbox = {-0.21, -0.21, -0.21, 0.21, 0.21, 0.21},
+		selectionbox = {-0.21, -0.21, -0.21, 0.21, 0.21, 0.21},
+		visual_size  = {x = 0.51, y = 0.51},
+	}
+})
+
+
+local wieldview_luaentites = {}
+
+local function update_wieldview_entity(object)
+	local luaentity = wieldview_luaentites[object]
+	if luaentity and luaentity.object:get_yaw() then
+		local objlua = object
+		if object:get_luaentity() then
+			objlua = object:get_luaentity()
+		end
+		local item = objlua:get_wielded_item():get_name()
+
+		if item == luaentity._item then return end
+
+		luaentity._item = item
+
+
+		local item_def = minetest.registered_items[item]
+		luaentity.object:set_properties({
+			glow = item_def and item_def.light_source or 0,
+			wield_item = item,
+			is_visible = item ~= ""
+		})
+	else
+		-- If the object is running through an unloaded area,
+		-- the wieldview entity will sometimes get unloaded.
+		-- This code path is also used to initalize the wieldview.
+		-- Creating entites from minetest.register_on_joinobject
+		-- is unreliable as of Minetest 5.6
+		local obj_ref = minetest.add_entity(object:get_pos(), "lottmobs:wieldview")
+		if not obj_ref then return end
+		obj_ref:set_attach(object, "Wield_Item")
+		wieldview_luaentites[object] = obj_ref:get_luaentity()
+	end
+end
+
+
+--helper functions:
 local function shortest_term_of_yaw_rotation(self, rot_origin, rot_target, nums)
 
 	if not rot_origin or not rot_target then
@@ -36,9 +90,97 @@ local function shortest_term_of_yaw_rotation(self, rot_origin, rot_target, nums)
 			end
 		end
 	end
-
 end
 
+
+local function get_wander_dir(pos, dir, length, self)
+  dir.y = 0
+
+  --ir = vector.add(dir, minetest.yaw_to_dir(self.object:get_yaw()))
+
+  dir = vector.normalize(dir)
+  local most_popular_dir = dir
+  local most_popular_dir_num = -10
+  for i=0, 20 do
+    local current_dir = vector.rotate_around_axis(dir, vector.new(0,1,0), 18*i)
+
+
+    local raycast = minetest.raycast(pos, vector.add(pos, vector.multiply(current_dir, length)), false, false)
+    local distance = length
+    for hitpoint in raycast do
+      if hitpoint.type == "object" and hitpoint.ref:get_luaentity() and hitpoint.ref:get_luaentity() == self then
+      else
+        if hitpoint.type == "object" then
+          distance = vector.distance(hitpoint.ref:get_pos(), pos)
+        else
+          distance = vector.distance(hitpoint.above, pos)
+        end
+      end
+    end
+    local finalscore = (distance*2)+(vector.dot(dir, current_dir)+4)
+    if finalscore > most_popular_dir_num then
+      most_popular_dir = current_dir
+      most_popular_dir_num = finalscore
+    end
+  end
+
+  return most_popular_dir
+end
+
+
+local function set_bone_position(obj, bone, pos, rot)
+	local current_pos, current_rot = obj:get_bone_position(bone)
+	local pos_equal = not pos or vector.equals(vector.round(current_pos), vector.round(pos))
+	local rot_equal = not rot or vector.equals(vector.round(current_rot), vector.round(rot))
+	if not pos_equal or not rot_equal then
+		obj:set_bone_position(bone, pos or current_pos, rot or current_rot)
+	end
+end
+
+
+local function dir_to_pitch(dir)
+	--local dir2 = vector.normalize(dir)
+	local xz = math.abs(dir.x) + math.abs(dir.z)
+	return -math.atan2(-dir.y, xz)
+end
+
+
+local function _line_of_sight(pos1, pos2, ents, self)
+	raycast = minetest.raycast(pos1, pos2, ents, false)
+	for hitpoint in raycast do
+
+		if hitpoint.type == "object" and self then
+			if hitpoint.ref and not self:is_us(hitpoint.ref) then
+				return hitpoint
+			end
+		else
+			return hitpoint
+		end
+
+	end
+	return
+end
+
+local function line_of_sight(pos1, pos2) -- custom l-o-s using raycast
+	local raycast = minetest.raycast(pos1, pos2, false, false)
+	for hitpoint in raycast do
+		return false
+	end
+	return true
+end
+
+
+local function calculate_armor_value(armor)
+	armor = ItemStack(armor)
+	return
+	(minetest.get_item_group(armor:get_name(), "armour_fleshy")+
+	minetest.get_item_group(armor:get_name(), "armour_pierce")+
+	minetest.get_item_group(armor:get_name(), "armour_blunt")+
+	minetest.get_item_group(armor:get_name(), "armour_stab"))/4
+end
+
+
+local dir_to_yaw = minetest.dir_to_yaw
 
 
 ----------PERSONALITY TRAITS
@@ -156,41 +298,11 @@ local MobClass = lottmobs.MobClass
 
 
 
-function MobClass:show_character_form(clicker, formextra)
+--*************************--
+--*****CHARACTER funcs*****--
+--*************************--
 
-
-	local slist = ""
-	local personality_traits_readable = {}
-	local physical_traits_readable = {}
-	for trait,value in pairs(personality_traits) do
-		table.insert(personality_traits_readable,self.character:get_readable_trait(trait))
-	end
-	for trait,value in pairs(physical_traits) do
-		table.insert(physical_traits_readable,self.character:get_readable_trait(trait))
-	end
-	table.insert(physical_traits_readable,self.health.."\n-  Health\n---------------------------------------")
-
-	slist_personality = "hypertext[0.5,1.5;3,9;castables;<style><style color=#ffffff font=bold size=13>"..table.concat(personality_traits_readable,"\n").."</style>]"
-	slist_physical = "hypertext[4.5,1.5;3,9;castables;<style><style color=#ffffff font=bold size=13>"..table.concat(physical_traits_readable,"\n").."</style>]"
-
-	local formspec =
-    "formspec_version[4]"..
-    "size[8,13]"..
-
-    "background[-0.5,-0;9,13;bg_paper.png]"..
-		"image[0.4,1.4;3.2,9.2;lottmobs_ui_dark.png^[opacity:50]]"..
-		slist_personality..
-		"image[4.4,1.4;3.2,9.2;lottmobs_ui_dark.png^[opacity:50]"..
-		slist_physical..
-
-    "image[4.7,11.6;3.2,1.2;lottmobs_ui_dark.png]"..
-    "image_button_exit[4.8,11.7;3,1;paper_button.png;close;Close]"..(formextra or "")
-	minetest.show_formspec(clicker:get_player_name(), "lottmobs:character_form", formspec)
-end
-
-
-
-
+	--Caracter class funcs----------:
 
 function CharacterClass:set_trait(trait, value)
 	if self.personality_traits[trait] then
@@ -199,9 +311,12 @@ function CharacterClass:set_trait(trait, value)
 	  self.physical_traits[trait] = value
 	end
 end
+
+
 function CharacterClass:get_trait(trait)
   return self.personality_traits[trait] or self.physical_traits[trait]
 end
+
 
 function CharacterClass:get_readable_trait(trait)
   local focused_trait = self.personality_traits[trait] or self.physical_traits[trait]
@@ -220,6 +335,9 @@ function CharacterClass:get_readable_trait(trait)
 
   return readable_trait
 end
+
+
+--Caracter misc----------:
 
 local function initialize_character_object() -- create base character
   local character = {
@@ -258,6 +376,7 @@ local function initialize_character_object() -- create base character
   return character
 end
 
+
 local function get_random_trait_num()
 	local num = 0
 	for i=1, 5 do
@@ -269,6 +388,7 @@ local function get_random_trait_num()
 	end
 	return num
 end
+
 
 function lottmobs.create_character()
   local character = initialize_character_object()
@@ -283,56 +403,74 @@ function lottmobs.create_character()
   return character
 end
 
-
-local function get_wander_dir(pos, dir, length, self)
-  dir.y = 0
-
-  --ir = vector.add(dir, minetest.yaw_to_dir(self.object:get_yaw()))
-
-  dir = vector.normalize(dir)
-  local most_popular_dir = dir
-  local most_popular_dir_num = -10
-  for i=0, 20 do
-    local current_dir = vector.rotate_around_axis(dir, vector.new(0,1,0), 18*i)
+--*******************--
+--*****MOB funcs*****--
+--*******************--
 
 
-    local raycast = minetest.raycast(pos, vector.add(pos, vector.multiply(current_dir, length)), false, false)
-    local distance = length
-    for hitpoint in raycast do
-      if hitpoint.type == "object" and hitpoint.ref:get_luaentity() and hitpoint.ref:get_luaentity() == self then
-      else
-        if hitpoint.type == "object" then
-          distance = vector.distance(hitpoint.ref:get_pos(), pos)
-        else
-          distance = vector.distance(hitpoint.above, pos)
-        end
-      end
-    end
-    local finalscore = (distance*2)+(vector.dot(dir, current_dir)+4)
-    if finalscore > most_popular_dir_num then
-      most_popular_dir = current_dir
-      most_popular_dir_num = finalscore
-    end
-  end
 
-  return most_popular_dir
+-- Mob Class functions--------:
+
+function MobClass:get_max_health()
+	return self.base_health * (self.character:get_trait("constitution") * 0.12+0.14)
 end
 
-local function do_jump(self, moveresult)
-  local dir = minetest.yaw_to_dir(self.object:get_yaw())
-  local vel = self.object:get_velocity()
-  local need_to_jump_pos = vector.add(vector.add(self.pos, vector.new(0,0.4,0)), vector.add(vector.multiply(vel, 0.3), dir))
-  local blockernode = vector.add(need_to_jump_pos, vector.new(0,1,0))
-
-  local node = minetest.get_node(need_to_jump_pos)
-  local blockernode = minetest.get_node(blockernode)
-  local nodedef = minetest.registered_nodes[node.name]
-  local nodedefblockernode = minetest.registered_nodes[blockernode.name]
-  if nodedef and nodedef.walkable and moveresult.touching_ground and not nodedefblockernode.walkable then
-    self.object:set_velocity(vector.new(vel.x,self.jump_height*5,vel.z))
-  end
+function MobClass:is_us(obj)
+	local luaentity = obj:get_luaentity()
+	if luaentity and luaentity.local_mob_id == self.local_mob_id then
+		return true
+	end
 end
 
+
+function MobClass:get_xz_vel()
+	local vel = self.object:get_velocity()
+	return math.abs(vel.x)+math.abs(vel.z)
+end
+
+
+function MobClass:distance_to(pos, ignore_y)
+	local selfpos = self.pos
+	if ignore_y then
+		selfpos.y = 0
+		pos.y = 0
+	end
+	return vector.distance(pos, selfpos)
+end
+
+
+function MobClass:show_character_form(clicker, formextra)
+
+
+	local slist = ""
+	local personality_traits_readable = {}
+	local physical_traits_readable = {}
+	for trait,value in pairs(personality_traits) do
+		table.insert(personality_traits_readable,self.character:get_readable_trait(trait))
+	end
+	for trait,value in pairs(physical_traits) do
+		table.insert(physical_traits_readable,self.character:get_readable_trait(trait))
+	end
+	table.insert(physical_traits_readable,self.health.."\n-  Health\n---------------------------------------")
+	table.insert(physical_traits_readable,self:get_view_range().."\n-  View Range\n---------------------------------------")
+
+	slist_personality = "hypertext[0.5,1.5;3,9;castables;<style><style color=#ffffff font=bold size=13>"..table.concat(personality_traits_readable,"\n").."</style>]"
+	slist_physical = "hypertext[4.5,1.5;3,9;castables;<style><style color=#ffffff font=bold size=13>"..table.concat(physical_traits_readable,"\n").."</style>]"
+
+	local formspec =
+    "formspec_version[4]"..
+    "size[8,13]"..
+
+    "background[-0.5,-0;9,13;bg_paper.png]"..
+		"image[0.4,1.4;3.2,9.2;lottmobs_ui_dark.png^[opacity:50]]"..
+		slist_personality..
+		"image[4.4,1.4;3.2,9.2;lottmobs_ui_dark.png^[opacity:50]"..
+		slist_physical..
+
+    "image[4.7,11.6;3.2,1.2;lottmobs_ui_dark.png]"..
+    "image_button_exit[4.8,11.7;3,1;paper_button.png;close;Close]"..(formextra or "")
+	minetest.show_formspec(clicker:get_player_name(), "lottmobs:character_form", formspec)
+end
 
 function MobClass:set_velocity(vel, offset)-- adds velocity based on the orientation of the object, offset turns that vector in degrees
   offset = offset or 0
@@ -354,39 +492,25 @@ function MobClass:set_velocity(vel, offset)-- adds velocity based on the orienta
 					self:set_animation("swim")
 				end
 			end)
-			if math.random(2) == 1 then
-			else
-			end
 			self._swim_timer = self.swim_rate
 		end
 	else
+		local _retreat_quick = self._retreat_quick or 0.5
+		local rot = 0
+		if self._retreat_quick and _retreat_quick < 0.5 then
+			rot = 1.57/2
+		elseif self._retreat_quick then
+			rot = 3.14
+		end
 		self.object:add_velocity(
 			vector.multiply(
-				dir,
-				vel*(self.character.physical_traits.speed/10+1)
+				vector.rotate_around_axis(dir, vector.new(0,1,0), rot),
+				vel*(self.character.physical_traits.speed/10+1)*(_retreat_quick*2)
 			)
 		)
 	end
 end
 
-
-
-local function set_bone_position(obj, bone, pos, rot)
-	local current_pos, current_rot = obj:get_bone_position(bone)
-	local pos_equal = not pos or vector.equals(vector.round(current_pos), vector.round(pos))
-	local rot_equal = not rot or vector.equals(vector.round(current_rot), vector.round(rot))
-	if not pos_equal or not rot_equal then
-    obj:set_bone_position(bone, pos or current_pos, rot or current_rot)
-	end
-end
-
-local function dir_to_pitch(dir)
-	--local dir2 = vector.normalize(dir)
-	local xz = math.abs(dir.x) + math.abs(dir.z)
-	return -math.atan2(-dir.y, xz)
-end
-
-local dir_to_yaw = minetest.dir_to_yaw
 
 function MobClass:get_eye_pos(islocal)
 	subtrand = 0
@@ -399,6 +523,7 @@ function MobClass:get_eye_pos(islocal)
 		return vector.add(self.pos,vector.new(0,self.eye_height-subtrand,0))
 	end
 end
+
 
 function MobClass:look_at(pos)
   local dir = vector.direction(self:get_eye_pos(), pos)
@@ -425,15 +550,20 @@ function MobClass:look_at(pos)
 	set_bone_position(self.object, self.head_bone, self.head_bone_pos, head_rot)
 end
 
-local function head_logic(self)
-  if self.target_pos then
-    self:look_at(self.target_pos)
-  end
-end
 
 function MobClass:set_pos(pos)
 	self.object:set_pos(pos)
 	self.pos = pos
+end
+
+function MobClass:get_mood()
+	if self.mood == "leisure" then
+		return 1
+	elseif self.mood == "determined" then
+		return 2
+	elseif self.mood == "disturbed" then
+		return 3
+	end
 end
 
 function MobClass:set_yaw(yaw, dtime)-- adds velocity based on the orientation of the object, offset turns that vector in degrees
@@ -447,45 +577,15 @@ function MobClass:set_yaw(yaw, dtime)-- adds velocity based on the orientation o
   local rot = shortest_term_of_yaw_rotation(self, selfyaw, yaw)
   local rot2 = shortest_term_of_yaw_rotation(self, selfyaw, yaw, true)
 
+	local mood = self:get_mood()
+
   if math.abs(rot2) > 10 then
     self.object:set_yaw(selfyaw+
-      (rot*(self.character.physical_traits.speed/20+0.5)/5)
+      (rot*(self.character.physical_traits.speed/20+0.5)/5*(mood/3))
     )
   end
 end
 
-local function movement(self,dtime,moveresult)
-  local vel = self.object:get_velocity()
-
-  self.mood = "leisure"
-
-  if self.state == "wander" then
-    -- WANDER code
-  end
-
-
-
-
-
-  if self.target_pos then -- go towards a target_pos if we deem it safe
-		if not self.swimming or (self._swim_timer/self.swim_rate) > 0.5 then
-			self:go_to(self.target_pos, dtime)
-		end
-    if self.mood == "leisure" then
-      self:set_velocity(0.25, dtime)
-    elseif self.mood == "determined" then
-      self:set_velocity(0.4, dtime)
-    elseif self.mood == "disturbed" then
-      self:set_velocity(0.6, dtime)
-    end
-  end
-
-end
-
-function MobClass:get_xz_vel()
-	local vel = self.object:get_velocity()
-	return math.abs(vel.x)+math.abs(vel.z)
-end
 
 function MobClass:go_to(pos, dtime) -- a hybrid way of going to a point without proper pathfinding
 	local point_dir = vector.direction(self:get_eye_pos(),pos)
@@ -496,41 +596,16 @@ function MobClass:go_to(pos, dtime) -- a hybrid way of going to a point without 
 		wander_dir = vector.normalize(vector.add(pushdir,wander_dir))
 	end
 
-	self:set_yaw(dir_to_yaw(wander_dir), dtime)
+	wander_dir = dir_to_yaw(wander_dir)
+
+	self:set_yaw(wander_dir, dtime)
 end
+
 
 function MobClass:set_anim_speed(mult)
 	self.object:set_animation_frame_speed(self:get_xz_vel()*6*mult)
 end
 
-local function do_animations(self)
-	local animspeed
-	if not self.swimming then
-
-		local rot = self.object:get_rotation()
-		if rot.x ~= 0 then
-			self.object:set_rotation(vector.new(0,rot.y,rot.z))
-		end
-
-		if self.mood == "leisure" or
-		self.mood == "determined" or
-		self.mood == "disturbed"
-		then
-			if self.mood == "disturbed" and self:get_xz_vel() > 0.3 then
-				self:set_animation("run")
-				animspeed = 1.5
-			elseif self.mood ~= "disturbed" and self:get_xz_vel() > 0.3 then
-				self:set_animation("walk")
-				animspeed = 1
-			else
-				self:set_animation("idle")
-			end
-		end
-		if animspeed then
-			self:set_anim_speed(1)
-		end
-	end
-end
 
 function MobClass:_personal_space() -- returns the direction in which easiest to escape crowding
 	local push_vector = vector.zero()
@@ -545,6 +620,7 @@ function MobClass:_personal_space() -- returns the direction in which easiest to
 	return push_vector
 end
 
+
 function MobClass:get_current_animation()
 	local current_anim = self.object:get_animation()
 	if not self.animations or not current_anim then return end
@@ -557,8 +633,12 @@ function MobClass:get_current_animation()
 	return ""
 end
 
-function MobClass:set_animation(name, fspeed)
+
+
+function MobClass:set_animation(name, fspeed, fade)
   if not self.animations[name] then return end
+
+	fade = fade or 0.4
 
 	local loop = true
 	if self.animations[name].loop == false then
@@ -571,9 +651,9 @@ function MobClass:set_animation(name, fspeed)
 	and loop
   then return end
 
-	self.object:set_animation({x=self.animations[name].anim.x, y=self.animations[name].anim.y}, self.animations[name].anim.z,0.4,loop)
-
+	self.object:set_animation({x=self.animations[name].anim.x, y=self.animations[name].anim.y}, self.animations[name].anim.z,fade,loop)
 end
+
 
 function MobClass:is_swimming(pos)
 	local swimming_node = minetest.get_node(pos or self.pos)
@@ -583,15 +663,7 @@ function MobClass:is_swimming(pos)
 	end
 end
 
-local function line_of_sight(pos1, pos2)
-	local raycast = minetest.raycast(pos1, pos2, false, false)
-	for hitpoint in raycast do
-		if hitpoint.type == "node" then
-			return
-		end
-	end
-	return true
-end
+
 
 function MobClass:get_swim_depth(pos)
 	local pos = pos or self.pos
@@ -612,6 +684,271 @@ function MobClass:get_swim_depth(pos)
 	end
 	return depth, floor_depth
 end
+
+
+function MobClass:remove_texture_mod(mod)
+	local full_mod = ""
+	local remove = {}
+	for i=1, #self.texture_mods do
+		if self.texture_mods[i] ~= mod then
+			full_mod = full_mod .. self.texture_mods[i]
+		else
+			table.insert(remove, i)
+		end
+	end
+	for i=#remove, 1 do
+		table.remove(self.texture_mods, remove[i])
+	end
+	self.object:set_texture_mod(full_mod)
+end
+
+
+function MobClass:add_texture_mod(mod)
+	local full_mod = ""
+	local already_added = false
+	for i=1, #self.texture_mods do
+		if mod == self.texture_mods[i] then
+			already_added = true
+		end
+		full_mod = full_mod .. self.texture_mods[i]
+	end
+	if not already_added then
+		full_mod = full_mod .. mod
+		table.insert(self.texture_mods, mod)
+	end
+	self.object:set_texture_mod(full_mod)
+end
+
+
+function MobClass:die()
+	self:set_animation("die")
+	self.on_die()
+	self.health = 0
+	local back_or_front = 0
+	local rot = self.object:get_rotation()
+	if self.swimming then
+		back_or_front = math.rad(math.random(0,1)*180)
+		self.yaw_vel=(math.random(100)-50)/40
+	end
+	self.object:set_rotation(vector.new(0,rot.y,back_or_front))
+	self.object:set_bone_position(self.head_bone, self.head_bone_pos, self.death_head_bone_rot)
+	self.dead = true
+	if wieldview_luaentites[self.object] then
+		wieldview_luaentites[self.object].object:remove()
+	end
+	wieldview_luaentites[self.object] = nil
+end
+
+
+function MobClass:check_for_death()
+	if self.health and self.health <= 0 then
+		if not self.dead then -- unless we have already run the die func, run it
+			self:die()
+		elseif self:get_current_animation() ~= "die" then
+			self:set_animation("die", nil, 0)
+		end
+		return true
+	end
+	return
+end
+
+
+function MobClass:damage(tool_capabilities, puncher, dir)
+
+	local num = tool_capabilities.damage_groups and tool_capabilities.damage_groups.fleshy or 1
+
+	self.health = self.health-num-(self.armor_prot/100*num)
+
+	if self:check_for_death() then return end
+
+	if dir then
+		self.object:add_velocity(vector.multiply(dir, 10))
+	end
+
+
+	self.damaged_timer = 0.2
+	self:add_texture_mod(self.damage_texture_modifier)
+end
+
+function MobClass:inv_add_item(item) -- inserts an itemstack
+	table.insert(item:to_string(),self.inventory)
+end
+
+function MobClass:get_best_melee() -- returns returns index in inv
+	local best_weapon
+	local best_weapon_ind
+	for _,_item in ipairs(self.inventory) do
+		local item = ItemStack(_item)
+		local def = minetest.registered_tools[item:get_name()]
+		if def then
+			local current_value = item:get_tool_capabilities().damage_groups
+			local best_weapon_value = best_weapon and best_weapon:get_tool_capabilities() and best_weapon:get_tool_capabilities().damage_groups
+			if not best_weapon or best_weapon and current_value.fleshy and best_weapon_value.fleshy and current_value.fleshy > best_weapon_value.fleshy then
+				best_weapon = item
+				best_weapon_ind = _
+			end
+		end
+	end
+	return best_weapon_ind
+end
+
+function MobClass:get_best_armor() -- returns returns index in inv
+	local final_list = {}
+	local types = {"armour_helmet","armour_chestplate","armour_leggings","armour_boots"}
+	for _,armor_type in ipairs(types) do
+		local best_armor_val
+		local best_armor_ind
+		for _,_item in ipairs(self.inventory) do
+			local item = ItemStack(_item)
+			local def = minetest.registered_tools[item:get_name()]
+			if def and minetest.get_item_group(item:get_name(), armor_type) ~= 0 then
+				if not best_armor_val or best_armor_val < calculate_armor_value(item) then
+					print(item:get_name()..":"..calculate_armor_value(item))
+					best_armor_val = calculate_armor_value(item)
+					best_armor_ind = _
+				end
+			end
+			if best_armor_ind then
+				table.insert(final_list, best_armor_ind)
+			end
+		end
+	end
+	return final_list
+end
+
+
+function MobClass:get_wielded_item() -- returns returns index in inv
+	return ItemStack(self.wielditem)
+end
+
+
+function MobClass:set_wielded_item(item) -- returns returns index in inv
+	self.wielditem = ItemStack(item):to_string()
+end
+
+function MobClass:get_view_range()
+	return self.view_range*(self.character:get_trait("keen_sense")/10+0.5)
+end
+
+-- State Functions functions
+
+local function do_jump(self, moveresult)
+  local dir = minetest.yaw_to_dir(self.object:get_yaw())
+  local vel = self.object:get_velocity()
+  local need_to_jump_pos = vector.add(vector.add(self.pos, vector.new(0,0.4,0)), vector.add(vector.multiply(vel, 0.3), dir))
+  local blockernode = vector.add(need_to_jump_pos, vector.new(0,1,0))
+
+  local node = minetest.get_node(need_to_jump_pos)
+  local blockernode = minetest.get_node(blockernode)
+  local nodedef = minetest.registered_nodes[node.name]
+  local nodedefblockernode = minetest.registered_nodes[blockernode.name]
+  if nodedef and nodedef.walkable and moveresult.touching_ground and not nodedefblockernode.walkable then
+    self.object:set_velocity(vector.new(vel.x,self.jump_height*5,vel.z))
+  end
+end
+
+
+local function head_logic(self)
+  if self.target_pos then
+    self:look_at(self.target_pos)
+  end
+end
+
+
+local function movement(self,dtime,moveresult)
+
+  local vel = self.object:get_velocity()
+
+	if self._retreat_quick then
+		self._retreat_quick = self._retreat_quick - dtime
+		if self._retreat_quick < 0 then
+			self._retreat_quick = nil
+		end
+	end
+
+
+  if self.state == "wander" then -- create wander behavior
+    self.mood = "leisure"
+
+		if self.target_pos and self:distance_to(self.target_pos, true) < 2 or not self.target_pos then
+			if math.random(10) == 1 then
+				self.target_pos = vector.add(self.pos, vector.new(math.random(-10,10), 0, math.random(-10,10)))
+			end
+		end
+	elseif self.state == "runaway" then
+		if self.target then
+			self.target_pos = vector.add(self.pos, vector.multiply(vector.direction(self.target:get_pos(), self.pos), 10))
+		elseif self.target_pos then
+			self.target_pos = vector.add(self.pos, vector.multiply(vector.direction(self.target_pos, self.pos), 10))
+		else
+			self:set_velocity(0.6, dtime)
+		end
+	elseif self.target then
+		self.mood = "disturbed"
+  end
+	if self.character.decision_making.health_min_percent/100*self:get_max_health() >= self.health then
+		self.state = "runaway"
+	end
+
+
+
+	local anim_speed = 1
+  if self.target_pos then -- go towards a target_pos if we deem it safe
+		if not self.swimming or (self._swim_timer/self.swim_rate) > 0.5 then
+			self:go_to(self.target_pos, dtime)
+		end
+    if self.mood == "leisure" then
+      self:set_velocity(0.15, dtime)
+			anim_speed = 0.5
+    elseif self.mood == "determined" then
+      self:set_velocity(0.4, dtime)
+    elseif self.mood == "disturbed" then
+      self:set_velocity(0.6, dtime)
+    end
+  end
+	self:set_anim_speed(anim_speed)
+end
+
+
+local function do_animations(self)
+	local animspeed
+	if not self.swimming then
+
+		local rot = self.object:get_rotation()
+		if rot.x ~= 0 then
+			self.object:set_rotation(vector.new(0,rot.y,rot.z))
+		end
+
+
+		if self.mood == "leisure" or
+		self.mood == "determined" or
+		self.mood == "disturbed"
+		then
+			if self.mood == "disturbed" and self:get_xz_vel() > 0.3 then
+				if self._hit_anim then
+					self:set_animation("run_mine", nil, 0)
+				else
+					self:set_animation("run")
+					animspeed = 1.5
+				end
+			elseif self.mood ~= "disturbed" and self:get_xz_vel() > 0.3 then
+				if self._hit_anim then
+					self:set_animation("walk_mine", nil, 0)
+				else
+					self:set_animation("walk")
+					animspeed = 1
+				end
+			else
+				if self._hit_anim then
+					self:set_animation("mine", nil, 0)
+				else
+					self:set_animation("idle")
+				end
+			end
+		end
+	end
+end
+
 
 local function do_physics(self)
 	if self.swimming then
@@ -649,7 +986,11 @@ local function do_physics(self)
 	end
 	local vel = self.object:get_velocity()
 	if not (self.swimming and self:check_for_death()) then
-		self.object:set_velocity(vector.new(vel.x*0.85, vel.y, vel.z*0.85))
+		if self:check_for_death() then
+			self.object:set_velocity(vector.new(vel.x*0.95, vel.y, vel.z*0.95))
+		else
+			self.object:set_velocity(vector.new(vel.x*0.85, vel.y, vel.z*0.85))
+		end
 	else
 		if self.yaw_vel then -- some rotation while simming in death for more imersion
 			local yaw = self.object:get_yaw()
@@ -660,50 +1001,24 @@ local function do_physics(self)
 	end
 end
 
-function MobClass:remove_texture_mod(mod)
-	local full_mod = ""
-	local remove = {}
-	for i=1, #self.texture_mods do
-		if self.texture_mods[i] ~= mod then
-			full_mod = full_mod .. self.texture_mods[i]
-		else
-			table.insert(remove, i)
-		end
-	end
-	for i=#remove, 1 do
-		table.remove(self.texture_mods, remove[i])
-	end
-	self.object:set_texture_mod(full_mod)
-end
-
-
-function MobClass:add_texture_mod(mod)
-	local full_mod = ""
-	local already_added = false
-	for i=1, #self.texture_mods do
-		if mod == self.texture_mods[i] then
-			already_added = true
-		end
-		full_mod = full_mod .. self.texture_mods[i]
-	end
-	if not already_added then
-		full_mod = full_mod .. mod
-		table.insert(self.texture_mods, mod)
-	end
-	self.object:set_texture_mod(full_mod)
-end
 
 local function do_attack(self)
-	for _,obj in pairs(minetest.get_objects_inside_radius(self.pos, self.view_range*(self.character:get_trait("keen_sense")/10+0.5))) do
+	for _,obj in pairs(minetest.get_objects_inside_radius(self.pos, self:get_view_range())) do
+
+		if self:is_us(obj) then return end
 
 		local dir_to = vector.direction(self:get_eye_pos(),obj:get_pos())
 		local dir = minetest.yaw_to_dir(self.object:get_yaw())
 		local dot = (vector.dot(dir_to, dir)+1)*0.5
-		if obj:is_player() and self.field_of_view <= dot then
-			self.target = obj
+		if (obj:get_luaentity() and obj:get_luaentity()._cmi_is_mob or obj:is_player()) and self.field_of_view <= dot then
+			if obj:is_player() and not (obj:get_hp() <= 0) or
+			obj:get_luaentity() and obj:get_luaentity()._cmi_is_mob and not obj:get_luaentity().dead then
+				self.target = obj
+			end
 		end
 	end
 end
+
 
 local function mob_step(self, dtime, moveresult) -- defines on_step for mobs
 
@@ -712,7 +1027,7 @@ local function mob_step(self, dtime, moveresult) -- defines on_step for mobs
 	if self.vel and self.vel then
 		local speed_change = math.abs(math.abs(self.vel.y)-math.abs(vel.y))*self.fall_damage
 		if speed_change > 10 then
-			self:damage(speed_change-9)
+			self:damage({damage_groups={fleshy=speed_change-9}})
 		end
 	end
 
@@ -745,30 +1060,76 @@ local function mob_step(self, dtime, moveresult) -- defines on_step for mobs
 	do_physics(self)
 	if self:check_for_death() then return	end
 
-
   self.do_step(self, dtime, moveresult)
 
 
 
-  if self.objective == "" then
-    self.state = "wander"
-  end
+
 
   do_jump(self, moveresult)
+	do_animations(self)
   movement(self,dtime,moveresult)
   head_logic(self)
-	do_animations(self)
 	self:get_current_animation()
 
   local pos = self.pos
 
-	self.character:set_trait("speed", 10)
-
 	-- runs a veriable amount of ticks based on speed trait
 	local speed = math.abs(self.character:get_trait("speed")-10)/8+0.2
-	if self.hit_interval_timer > speed then
+	if self.hit_interval_timer > speed and self.target then
 		self.hit_interval_timer = 0
-		print("hit")
+		local target_eye_height = self.target:get_properties().eye_height or 0
+		local ppos = vector.add(self.target:get_pos(), vector.new(0,target_eye_height*0.5,0))
+		local dist
+		local hit_pos = vector.add(vector.multiply(vector.direction(self:get_eye_pos(), ppos), self.reach), self:get_eye_pos())
+		local los = _line_of_sight(self:get_eye_pos(),hit_pos,true, self) -- custom raycast line of sight
+
+		if los and los.ref then -- use racast to see if mob can hit target
+
+			local target = los.ref
+
+			if (vector.dot(minetest.yaw_to_dir(self.object:get_yaw()), minetest.yaw_to_dir(minetest.dir_to_yaw(vector.multiply(vector.direction(self:get_eye_pos(), ppos), vector.new(1,0,1)))))+1)/2 < self.field_of_view then return end -- if to far turned way don't punch
+
+			local wielditem = {
+				full_punch_interval = 0.1,
+				damage_groups = {fleshy = 1},
+			}
+
+			if self.wielditem then
+				wielditem = self:get_wielded_item():get_tool_capabilities()
+			end
+
+			self._retreat_quick = 0.7 -- run back for one second
+
+			self._hit_anim = true
+			minetest.after(0.4, function()
+				if self and self._hit_anim and self.object:get_yaw() and target and target:get_pos() then
+					self._hit_anim = false
+						if target:get_luaentity() and target:get_luaentity()._cmi_is_mob then
+							target:get_luaentity():damage(wielditem, self.object, vector.zero())
+						else
+							target:punch(self.object,
+							1,
+							wielditem,
+							self.pos)
+						end
+
+					local tarvel = target:get_velocity()
+					local kb = vector.zero()
+
+					if math.abs(tarvel.x) < 10 then
+						kb.x = 10
+					end
+					if math.abs(tarvel.y) < 10 then
+						kb.y = 10
+					end
+					if math.abs(tarvel.z) < 10 then
+						kb.z = 10
+					end
+					target:add_velocity(vector.multiply(vector.direction(self.pos, ppos), tarvel))
+				end
+			end)
+		end
 	end
 
 
@@ -776,8 +1137,28 @@ local function mob_step(self, dtime, moveresult) -- defines on_step for mobs
   -- runs ever 20 ticks
   if self.mobtimer % 20 == 1 then
 
+		if self.objective == "" and not self.target and not self.state == "runaway" then
+			self.state = "wander"
+		elseif self.target then
+			self.state = "attack"
+		end
+
+		update_wieldview_entity(self.object)
+
 		if not self.target then
 			do_attack(self)
+
+		elseif self.target:is_player() and
+		self.target:get_hp() <= 0 or
+
+		self.target:get_luaentity() and
+		self.target:get_luaentity()._cmi_is_mob and
+		self.target:get_luaentity().health <= 0 or
+
+		vector.distance(self.target:get_pos(), self.pos) > self:get_view_range() then
+			 --if we no longer have a living target then set target to nil
+			self.target = nil
+			self.target_pos = nil
 		end
 
 
@@ -798,7 +1179,6 @@ local function mob_step(self, dtime, moveresult) -- defines on_step for mobs
 			if self.target:is_player() then
 				target_pos = vector.add(self.target:get_pos(), vector.new(0,self.target:get_properties().eye_height,0))
 			end
-
 	    if line_of_sight(vector.add(pos, vector.new(0,0.1,0)), target_pos) or
 	    line_of_sight(vector.add(pos, vector.new(0,0.4,0)), target_pos) or
 	    line_of_sight(vector.add(pos, vector.new(0,0.8,0)), target_pos) or
@@ -813,53 +1193,13 @@ local function mob_step(self, dtime, moveresult) -- defines on_step for mobs
 
 
   end
-
-end
-
-function MobClass:die()
-	self.health = 0
-	local back_or_front = 0
-	local rot = self.object:get_rotation()
-	if self.swimming then
-		back_or_front = math.rad(math.random(0,1)*180)
-		self.yaw_vel=(math.random(100)-50)/40
-	end
-	self.object:set_rotation(vector.new(0,rot.y,back_or_front))
-	self.object:set_bone_position(self.head_bone, self.head_bone_pos, self.death_head_bone_rot)
-	self.dead = true
 end
 
 
-function MobClass:check_for_death()
-	if self.health <= 0 then
-		self:set_animation("die")
-		if not self.dead then -- unless we have already run the die func, run it
-			self:die()
-		end
-		return true
-	end
-	return
-end
 
 
-function MobClass:damage(num, puncher, dir)
 
-
-	self.health = self.health-num-(self.armor_prot/100*num)
-
-	if self:check_for_death() then return end
-
-	if dir then
-		self.object:add_velocity(vector.multiply(dir, 10))
-	end
-
-	print(num)
-
-	self.damaged_timer = 0.2
-	self:add_texture_mod(self.damage_texture_modifier)
-
-end
-
+--******Register Mob******--
 
 function lottmobs.register_mob(name, def) -- main function to create new mob
 
@@ -932,6 +1272,15 @@ function lottmobs.register_mob(name, def) -- main function to create new mob
     ranged_reload_interval = def.ranged_reload_interval or 3, --base interval in seconds between each shot.
     --(used with dexterity to calculate overall interval)
 
+		inventory = {
+			ItemStack("lottitems:dirt"):to_string(),
+			ItemStack("lotttools:test_sword_med"):to_string(),
+			ItemStack("lotttools:test_sword_strong"):to_string(),
+			ItemStack("lotttools:test_sword_weak"):to_string(),
+			ItemStack("lottarmour:boots_wood"):to_string(),
+			ItemStack("lottarmour:chestplate_wood"):to_string(),
+		},
+
 		--------------MISC
 
 
@@ -955,12 +1304,17 @@ function lottmobs.register_mob(name, def) -- main function to create new mob
     ---Functions
     on_spawn = def.on_spawn or function() end,
     do_step = def.do_step or function() end,
-
+    on_die = def.on_die or function() end,
 
 
     on_step = mob_step,
     on_activate = function(self, staticdata, dtime_s)
 
+			self.local_mob_id = math.random(10000)/100
+
+			self:set_wielded_item(self.inventory[self:get_best_melee()])
+			--MAKE aRMOR WPORK
+			self:get_best_armor()
 
 			if not self._textures then
 				self._textures = self.textures_random[math.random(#self.textures_random)]
@@ -978,7 +1332,7 @@ function lottmobs.register_mob(name, def) -- main function to create new mob
 
       if not self.character then
         self.character = lottmobs.create_character()
-				self.health = self.base_health * (self.character:get_trait("constitution") * 0.12+0.14) -- largest multiple = 1.3 and lowest = 0.76
+				self.health = self:get_max_health() -- largest multiple = 1.3 and lowest = 0.76
 				self.character.texture = self._textures
       end
 			self.object:set_properties({
@@ -1020,11 +1374,12 @@ function lottmobs.register_mob(name, def) -- main function to create new mob
 					end
 				end
 				if not hit then return end
+				self:damage({damage_groups={fleshy=math.random(5)}}, puncher, dir)
+			else
+				self:damage(tool_capabilities, puncher, dir)
 			end
 
-
-			self:damage(math.random(5), puncher, dir)
-      return true
+			return true
     end,
 		on_rightclick = function(self, clicker)
 			self:show_character_form(clicker)
