@@ -18,8 +18,8 @@ lottarmour.inv_armour = function(player)
 		"image[8.24,1.85;1,1;armour_icon_shield.png;]"..
 	"list[detached:"..name.."_armour;armour;7.24,1.85;1,1;5]".. --ring
 		"image[7.24,1.85;1,1;armour_icon_ring.png;]"..
-	"list[detached:"..name.."_armour;armour;7.74,0.75;1,1;10]".. --cape
-		"image[7.74,0.75;1,1;armour_icon_cape.png;]"..
+	--"list[detached:"..name.."_armour;armour;7.74,0.75;1,1;10]".. --cape
+		--"image[7.74,0.75;1,1;armour_icon_cape.png;]"..
 
 	"listring[detached:"..name.."_armour;armour]"..
 	--"listring[detached:"..name.."_clothing;clothing]"..
@@ -55,8 +55,8 @@ lottarmour.inv_armour_left = function(player)
 		"image[1.80,1.85;1,1;armour_icon_shield.png;]"..
 	"list[detached:"..name.."_armour;armour;0.80,1.85;1,1;5]".. -- ring
 		"image[0.80,1.85;1,1;armour_icon_ring.png;]"..
-	"list[detached:"..name.."_armour;armour;1.30,0.75;1,1;10]".. -- cape
-		"image[1.30,0.75;1,1;armour_icon_cape.png;]"..
+	--"list[detached:"..name.."_armour;armour;1.30,0.75;1,1;10]".. -- cape
+		--"image[1.30,0.75;1,1;armour_icon_cape.png;]"..
 	"listring[detached:"..name.."_armour;armour]"..
 	--"listring[detached:"..name.."_clothing;clothing]"..
 
