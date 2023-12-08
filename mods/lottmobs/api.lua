@@ -1203,6 +1203,14 @@ end
 
 function lottmobs.register_mob(name, def) -- main function to create new mob
 
+		minetest.register_craftitem(name.."_spawn_egg", {
+			description = name,
+			on_place = function(itemstack, placer, pointed_thing)
+				minetest.add_entity(pointed_thing.above, name)
+			end,
+		})
+
+
     local mob_define = {
     ---------Default engine Cells
 
