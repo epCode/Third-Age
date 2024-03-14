@@ -1,17 +1,21 @@
 lotttools = {}
 
 dofile(minetest.get_modpath("lotttools").."/crafting.lua")
+dofile(minetest.get_modpath("lotttools").."/tool_brace.lua")
 
 function lotttools.register_tool(name, def)
 
 	local modname = minetest.get_current_modname()
 
 	local type = def.type
+	local groups = def.groups or {}
+	groups.tool_blade = 1
 
 	minetest.register_tool(modname..":"..name, {
 		description = def.description or "Unknown Tool",
 		inventory_image = modname.."_"..name..".png",
-		tool_capabilities = def.tool_capabilities
+		tool_capabilities = def.tool_capabilities,
+		groups = groups,
 	})
 
 	lotttools.register_craft(modname..":"..name, def)
