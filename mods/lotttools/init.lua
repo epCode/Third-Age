@@ -10,26 +10,12 @@ function lotttools.register_tool(name, def)
 
 	minetest.register_tool(modname..":"..name, {
 		description = def.description or "Unknown Tool",
-		inventory_image = modname.."_"..name..",png",
+		inventory_image = modname.."_"..name..".png",
 		tool_capabilities = def.tool_capabilities
 	})
 
 	lotttools.register_craft(modname..":"..name, def)
 end
-
-lotttools.register_tool("iron_sword", {
-	description = "Iron Sword",
-	material = "lottitems:apple",
-	type = "sword",
-	tool_capabilities = {
-		full_punch_interval = 0.5,
-		groupcaps = {
-			plant = {maxlevel = 0, uses = 100,
-				times = {[1] = 0.5, [2] = 0.75, [3] = 1, [4] = 0.2}
-			},
-		},
-	},
-})
 
 -- Tmp dig all pick!
 minetest.register_tool("lotttools:omni_pick", {
@@ -45,5 +31,25 @@ minetest.register_tool("lotttools:omni_pick", {
 			plant = {maxlevel = 0, uses = 100,
 				times = {[1] = 0.5, [2] = 0.75, [3] = 1, [4] = 0.2}},
 		}
+	},
+})
+
+
+lotttools.register_tool("sword_iron", {
+	description = "Iron Sword",
+	--material = "lottitems:apple",
+	craft_pattern = {
+		{"","",""},
+		{"","",""},
+		{"","",""},
+	},
+	type = "sword",
+	tool_capabilities = {
+		full_punch_interval = 0.5,
+		groupcaps = {
+			plant = {maxlevel = 0, uses = 100,
+				times = {[1] = 0.5, [2] = 0.75, [3] = 1, [4] = 0.2}
+			},
+		},
 	},
 })

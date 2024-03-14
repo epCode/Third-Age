@@ -45,6 +45,6 @@ function lotttools.register_craft(name, def)
 
   minetest.register_craft({
       output = name,
-      recipe = theblade,
+      recipe = def.craft_pattern or theblade,
   })
 end
